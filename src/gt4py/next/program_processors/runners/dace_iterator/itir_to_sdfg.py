@@ -42,6 +42,7 @@ from .utility import (
     get_sorted_dims,
     map_nested_sdfg_symbols,
     unique_var_name,
+    unique_name,
 )
 
 
@@ -109,11 +110,15 @@ class ItirToSDFG(eve.NodeVisitor):
         self.storage_types = {}
 
     def add_storage(self, sdfg: dace.SDFG, name: str, type_: ts.TypeSpec, has_offset: bool = True):
+        """Creates either a `DaCe.Array` or a `DaCe.Symbol` with name `name` and type `type_`.
+
+        For arrays symbols are automatically created to denote thge dimension and the stride.
+        """
         if isinstance(type_, ts.FieldType):
-            shape = [dace.symbol(unique_var_name()) for _ in range(len(type_.dims))]
-            strides = [dace.symbol(unique_var_name()) for _ in range(len(type_.dims))]
+            shape = [dace.symbol(unique_name(f"{name}_{i}shape_")) for i in range(len(type_.dims))]
+            strides = [dace.symbol(unique_name(f"{name}_{i}stride_")) for i in range(len(type_.dims))]
             offset = (
-                [dace.symbol(unique_var_name()) for _ in range(len(type_.dims))]
+                [dace.symbol(unique_name(f"{name}_{i}offset_")) for i in range(len(type_.dims))]
                 if has_offset
                 else None
             )
