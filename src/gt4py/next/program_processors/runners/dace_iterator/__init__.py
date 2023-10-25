@@ -38,23 +38,28 @@ def get_sorted_dim_ranges(domain: Domain) -> Sequence[UnitRange]:
 
 """ Default build configuration in DaCe backend """
 _build_type = "Release"
-# removing  -ffast-math from DaCe default compiler args in order to support isfinite/isinf/isnan built-ins
-_cpu_args = (
+_cpu_args = (   # removing  -ffast-math from DaCe default compiler args in order to support isfinite/isinf/isnan built-ins
     "-std=c++14 -fPIC -Wall -Wextra -O3 -march=native -Wno-unused-parameter -Wno-unused-label"
 )
 
 
-def convert_arg(arg: Any):
+def convert_to_dace_arg(arg: Any):
+    """Ensures that `arg` is a type that is accepted by a DaCe program, i.e. ndarray or scalar.
+    """
     if is_field(arg):
         sorted_dims = get_sorted_dims(arg.domain.dims)
         ndim = len(sorted_dims)
         dim_indices = [dim_index for dim_index, _ in sorted_dims]
         assert isinstance(arg.ndarray, np.ndarray)
+        #? Why do we perform a reordering here.
         return np.moveaxis(arg.ndarray, range(ndim), dim_indices)
+    assert isinstance(arg, np.ndarray) or np.isscalar(arg)
     return arg
 
 
 def preprocess_program(program: itir.FencilDefinition, offset_provider: Mapping[str, Any]):
+    """Apply the most common transformation to the ITIR representation.
+    """
     program = apply_common_transforms(
         program,
         offset_provider=offset_provider,
@@ -64,19 +69,21 @@ def preprocess_program(program: itir.FencilDefinition, offset_provider: Mapping[
     return program
 
 
-def get_args(params: Sequence[itir.Sym], args: Sequence[Any]) -> dict[str, Any]:
-    return {name.id: convert_arg(arg) for name, arg in zip(params, args)}
-
-
 def get_connectivity_args(
     neighbor_tables: Sequence[tuple[str, NeighborTableOffsetProvider]]
 ) -> dict[str, Any]:
+    """Transforms `NeighborTableOffsetProvider:` into an numpy ndarray.
+
+    The string used as key for the returned mapping will be derived from the string passed as first argument of the tuple.
+    """
     return {connectivity_identifier(offset): table.table for offset, table in neighbor_tables}
 
 
 def get_shape_args(
     arrays: Mapping[str, dace.data.Array], args: Mapping[str, Any]
 ) -> Mapping[str, int]:
+    """Determine the values of the symbolic shape parameters for this particular call.
+    """
     return {
         str(sym): size
         for name, value in args.items()
@@ -87,6 +94,8 @@ def get_shape_args(
 def get_offset_args(
     arrays: Mapping[str, dace.data.Array], params: Sequence[itir.Sym], args: Sequence[Any]
 ) -> Mapping[str, int]:
+    """Determine the values of the symbolic offset parameters for this particular call.
+    """
     return {
         str(sym): -drange.start
         for param, arg in zip(params, args)
@@ -98,6 +107,8 @@ def get_offset_args(
 def get_stride_args(
     arrays: Mapping[str, dace.data.Array], args: Mapping[str, Any]
 ) -> Mapping[str, int]:
+    """Determine the values of the symbolic stride parameters for this particular call.
+    """
     stride_args = {}
     for name, value in args.items():
         for sym, stride_size in zip(arrays[name].strides, value.strides):
@@ -194,35 +205,36 @@ def run_dace_iterator(program: itir.FencilDefinition, *args, **kwargs) -> None:
         # store SDFG program in build cache
         if build_cache is not None:
             build_cache[cache_id] = sdfg_program
+    #
 
-    dace_args = get_args(program.params, args)
+    # Associate the arguments passed the execution with the ones expected by DaCe.
+    #  Since DaCe expects NumPy array we have to transform them.
+    #  NOTE: We expect here that the order of passed arguments is correct, no check is performed on that.
+    dace_args       = {name.id: convert_to_dace_arg(arg) for name, arg in zip(program.params, args)}
     dace_field_args = {n: v for n, v in dace_args.items() if not np.isscalar(v)}
-    dace_conn_args = get_connectivity_args(neighbor_tables)
-    dace_shapes = get_shape_args(sdfg.arrays, dace_field_args)
-    dace_conn_shapes = get_shape_args(sdfg.arrays, dace_conn_args)
-    dace_strides = get_stride_args(sdfg.arrays, dace_field_args)
-    dace_conn_strides = get_stride_args(sdfg.arrays, dace_conn_args)
+    dace_conn_args  = get_connectivity_args(neighbor_tables)
+
+    # Associate the symbols used to denote shapes, strides and offsets in
+    #  DaCe with the concrete values in this call.
+    dace_shapes  = get_shape_args(sdfg.arrays, {**dace_field_args, **dace_conn_args})
+    dace_strides = get_stride_args(sdfg.arrays, {**dace_field_args, **dace_conn_args})
     dace_offsets = get_offset_args(sdfg.arrays, program.params, args)
 
     all_args = {
         **dace_args,
         **dace_conn_args,
         **dace_shapes,
-        **dace_conn_shapes,
         **dace_strides,
-        **dace_conn_strides,
         **dace_offsets,
     }
-    expected_args = {
-        key: value
-        for key, value in all_args.items()
-        if key in sdfg.signature_arglist(with_types=False)
-    }
+
+    # Determine the arguments we need to call the program.
+    needed_dace_args = {call_arg: all_args[call_arg] for call_arg in sdfg.signature_arglist(with_types=False)}
 
     with dace.config.temporary_config():
         dace.config.Config.set("compiler", "allow_view_arguments", value=True)
         dace.config.Config.set("frontend", "check_args", value=True)
-        sdfg_program(**expected_args)
+        sdfg_program(**needed_dace_args)
 
 
 @program_executor
