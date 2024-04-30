@@ -26,6 +26,11 @@ from gt4py.next.program_processors.runners.dace_fieldview.utility import as_dace
 from gt4py.next.type_system import type_specifications as ts
 
 
+# I would suggested adding the term "Literal" to the class name.
+#  Because scalar access could also be understood as read from a scalar.
+#  Here you turn a Literal (which might be a symbol) into a scalar.
+# Why does this thing inherent from `TaskletCodegen` I mean it does
+#  create a Tasklet in some sense, but also much more.
 class GtirBuiltinScalarAccess(GtirTaskletCodegen):
     _sym_name: str
     _data_type: ts.ScalarType
@@ -54,6 +59,9 @@ class GtirBuiltinScalarAccess(GtirTaskletCodegen):
 
 
 class GtirBuiltinAsFieldOp(GtirTaskletCodegen):
+    # For what do you want to use this class for?
+    #  I also think a description of the module could help a lot.
+    #  But if I understand the code correctly you split the handling?
     _stencil: itir.Lambda
     _domain: dict[Dimension, tuple[str, str]]
     _args: Sequence[GtirTaskletCodegen]
@@ -75,7 +83,7 @@ class GtirBuiltinAsFieldOp(GtirTaskletCodegen):
         self._field_type = ts.FieldType([dim for dim, _, _ in domain], field_dtype)
 
     def __call__(self) -> list[tuple[dace.nodes.Node, ts.FieldType | ts.ScalarType]]:
-        # generate the python code for this stencil
+        # Generate the SDFG structure.
         output_connector = "__out"
         tlet_code = "{var} = {code}".format(
             var=output_connector, code=self.visit(self._stencil.expr)
@@ -114,7 +122,12 @@ class GtirBuiltinAsFieldOp(GtirTaskletCodegen):
                     )
                 else:
                     memlet = dace.Memlet.from_array(arg_node.data, arg_node.desc(self._sdfg))
-                    memlet.volume = 1
+                    # I think `1` is wrong, because it means that exactly one element is consumed.
+                    #  However, I am not 1005 sure if one can know this at this point.
+                    #  Thus you should use
+                    memlet.dynamic = True
+                    memlet.volume = 0
+                    #  to indicate that the amount is unknown.
                     input_memlets[connector] = memlet
             else:
                 input_memlets[connector] = dace.Memlet(data=arg_node.data, subset="0")
@@ -159,6 +172,12 @@ class GtirBuiltinSelect(GtirTaskletCodegen):
         false_br_args = self._false_br_builder()
         assert len(true_br_args) == len(false_br_args)
 
+        # Is it correct that we now are "in" the join state?
+        #  But somehow we still have access to the other branch states?
+
+        # If I understand this code correctly this object just ensures that both
+        #  branches write to the same output.
+
         output_nodes = []
         for true_br, false_br in zip(true_br_args, false_br_args):
             true_br_node, true_br_type = true_br
@@ -166,11 +185,12 @@ class GtirBuiltinSelect(GtirTaskletCodegen):
             false_br_node, false_br_type = false_br
             assert isinstance(false_br_node, dace.nodes.AccessNode)
             assert true_br_type == false_br_type
-            array_type = self._sdfg.arrays[true_br_node.data]
+            array_type = self._sdfg.arrays[true_br_node.data] # <- Why `_type` it is an array and not a type, it contains a type.
+            # You do not need this access node in the join state, since it might not be connected to anything else; i.e. writing to the return value.
+            #  I am not sure but for such dangling nodes dace will output at least a warning.
             access_node = self._add_local_storage(true_br_type, array_type.shape)
-            output_nodes.append((access_node, true_br_type))
-
             data_name = access_node.data
+
             true_br_output_node = self._true_br_builder._state.add_access(data_name)
             self._true_br_builder._state.add_nedge(
                 true_br_node,
@@ -188,4 +208,7 @@ class GtirBuiltinSelect(GtirTaskletCodegen):
                     false_br_output_node.data, false_br_output_node.desc(self._sdfg)
                 ),
             )
+
+            output_nodes.append((access_node, true_br_type))
+
         return output_nodes

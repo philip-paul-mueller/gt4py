@@ -104,7 +104,7 @@ class GtirTaskletCodegen(codegen.TemplatedGenerator):
         """ "Creates the dataflow representing the given GTIR builtin.
 
         Returns a list of connections, where each connectio is defined as:
-        tuple(node, connector_name)
+        tuple(node, connector_name) <- The return type signature looks a bit different; 2. argument is a type or not?
         """
         raise NotImplementedError
 
@@ -148,6 +148,7 @@ class GtirTaskletCodegen(codegen.TemplatedGenerator):
     @final
     def visit_Lambda(self, node: itir.Lambda) -> Any:
         # This visitor class should never encounter `itir.Lambda` expressions
+        #  Why?
         raise RuntimeError("Unexpected 'itir.Lambda' node encountered by 'GtirTaskletCodegen'.")
 
     @final
