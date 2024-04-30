@@ -185,7 +185,9 @@ class GtirBuiltinSelect(GtirTaskletCodegen):
             false_br_node, false_br_type = false_br
             assert isinstance(false_br_node, dace.nodes.AccessNode)
             assert true_br_type == false_br_type
-            array_type = self._sdfg.arrays[true_br_node.data] # <- Why `_type` it is an array and not a type, it contains a type.
+            array_type = self._sdfg.arrays[
+                true_br_node.data
+            ]  # <- Why `_type` it is an array and not a type, it contains a type.
             # You do not need this access node in the join state, since it might not be connected to anything else; i.e. writing to the return value.
             #  I am not sure but for such dangling nodes dace will output at least a warning.
             access_node = self._add_local_storage(true_br_type, array_type.shape)
