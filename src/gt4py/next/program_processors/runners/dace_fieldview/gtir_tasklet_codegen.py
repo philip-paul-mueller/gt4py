@@ -100,13 +100,14 @@ class GtirTaskletCodegen(codegen.TemplatedGenerator):
         self._sdfg = sdfg
         self._state = state
 
+    @final
     def __call__(self) -> list[tuple[dace.nodes.Node, ts.FieldType | ts.ScalarType]]:
         """ "Creates the dataflow representing the given GTIR builtin.
 
         Returns a list of connections, where each connectio is defined as:
         tuple(node, connector_name) <- The return type signature looks a bit different; 2. argument is a type or not?
         """
-        raise NotImplementedError
+        return self._build()
 
     @final
     def _add_local_storage(self, data_type: ts.DataType, shape: list[str]) -> dace.nodes.AccessNode:
@@ -121,6 +122,9 @@ class GtirTaskletCodegen(codegen.TemplatedGenerator):
             dtype = as_dace_type(data_type)
             name, _ = self._sdfg.add_scalar(name, dtype, find_new_name=True, transient=True)
         return self._state.add_access(name)
+
+    def _build(self) -> list[tuple[dace.nodes.Node, ts.FieldType | ts.ScalarType]]:
+        raise NotImplementedError
 
     def _visit_deref(self, node: itir.FunCall) -> str:
         assert len(node.args) == 1

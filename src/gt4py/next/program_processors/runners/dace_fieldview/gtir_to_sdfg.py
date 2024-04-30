@@ -184,11 +184,15 @@ class GtirToSDFG(eve.NodeVisitor):
             # At one point we should propose a new property `global` it is easier on the mind to avoid a level of negation.
             assert not target_array.transient
             target_field_type = self._data_types[target_node.data]
-            assert isinstance(target_field_type, ts.FieldType)
 
-            subset = ",".join(
-                f"{domain_map[dim][0]}:{domain_map[dim][1]}" for dim in target_field_type.dims
-            )
+            if isinstance(target_field_type, ts.FieldType):
+                subset = ",".join(
+                    f"{domain_map[dim][0]}:{domain_map[dim][1]}" for dim in target_field_type.dims
+                )
+            else:
+                assert len(domain) == 0
+                subset = "0"
+
             dataflow_builder._head_state.add_nedge(
                 expr_node,
                 target_node,
