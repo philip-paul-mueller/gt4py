@@ -41,6 +41,13 @@ class GtirBuiltinSelect(GtirTaskletCodegen):
         false_br_args = self._false_br_builder()
         assert len(true_br_args) == len(false_br_args)
 
+        # Is it correct that we now are "in" the join state?
+        #  But somehow we still have access to the other branch states?
+
+        # If I understand this code correctly this object just ensures that both
+        #  branches write to the same output.
+
+
         output_nodes = []
         for true_br, false_br in zip(true_br_args, false_br_args):
             true_br_node, true_br_type = true_br
@@ -48,7 +55,9 @@ class GtirBuiltinSelect(GtirTaskletCodegen):
             false_br_node, false_br_type = false_br
             assert isinstance(false_br_node, dace.nodes.AccessNode)
             assert true_br_type == false_br_type
-            array_type = self._sdfg.arrays[true_br_node.data]
+            array_type = self._sdfg.arrays[true_br_node.data] # <- Why `_type` it is an array and not a type, it contains a type.
+            # You do not need this access node in the join state, since it might not be connected to anything else; i.e. writing to the return value.
+            #  I am not sure but for such dangling nodes dace will output at least a warning.
             access_node = self._add_local_storage(true_br_type, array_type.shape)
             output_nodes.append((access_node, true_br_type))
 

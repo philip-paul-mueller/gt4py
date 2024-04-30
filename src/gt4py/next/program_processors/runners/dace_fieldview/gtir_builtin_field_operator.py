@@ -51,7 +51,6 @@ class GtirBuiltinAsFieldOp(GtirTaskletCodegen):
 
     def _build(self) -> list[tuple[dace.nodes.Node, ts.FieldType | ts.ScalarType]]:
         # Generate the SDFG structure.
-        # generate the python code for this stencil
         output_connector = "__out"
         tlet_code = "{var} = {code}".format(
             var=output_connector, code=self.visit(self._stencil.expr)

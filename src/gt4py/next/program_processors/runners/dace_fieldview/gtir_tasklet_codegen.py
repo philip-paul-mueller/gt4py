@@ -152,7 +152,7 @@ class GtirTaskletCodegen(codegen.TemplatedGenerator):
     @final
     def visit_Lambda(self, node: itir.Lambda) -> Any:
         # This visitor class should never encounter `itir.Lambda` expressions
-        #  Why?
+        #  Why should that be?
         raise RuntimeError("Unexpected 'itir.Lambda' node encountered by 'GtirTaskletCodegen'.")
 
     @final
