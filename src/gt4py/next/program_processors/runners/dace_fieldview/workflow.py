@@ -17,13 +17,8 @@ import factory
 
 from gt4py._core import definitions as core_defs
 from gt4py.next import common, config
-from gt4py.next.iterator import ir as itir
-from gt4py.next.iterator.transforms import (
-    collapse_tuple,
-    infer_domain,
-    inline_fundefs,
-    inline_lambdas,
-)
+from gt4py.next.iterator import ir as itir, transforms as itir_transforms
+from gt4py.next.iterator.type_system import inference as itir_inference
 from gt4py.next.otf import languages, recipes, stages, step_types, workflow
 from gt4py.next.otf.binding import interface
 from gt4py.next.otf.languages import LanguageSettings
@@ -52,22 +47,8 @@ class DaCeTranslator(
         offset_provider: dict[str, common.Dimension | common.Connectivity],
         column_axis: Optional[common.Dimension],
     ) -> dace.SDFG:
-        ir = inline_fundefs.InlineFundefs().visit(ir)
-        ir = inline_fundefs.PruneUnreferencedFundefs().visit(ir)
-        ir = inline_lambdas.InlineLambdas.apply(ir, opcount_preserving=True)
-
-        node = collapse_tuple.CollapseTuple.apply(ir)
-        assert isinstance(node, itir.Program)
-        ir = node
-
-        ir = infer_domain.infer_program(
-            ir,
-            offset_provider={
-                k: offset
-                for k, offset in offset_provider.items()
-                if isinstance(offset, common.Dimension)
-            },
-        )
+        ir = itir_transforms.apply_common_transforms(ir)
+        ir = itir_inference.infer(ir, offset_provider=offset_provider)
 
         return gtir_to_sdfg.build_sdfg_from_gtir(program=ir, offset_provider=offset_provider)
 
