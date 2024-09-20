@@ -24,6 +24,9 @@ class InlineFundefs(PreserveLocationVisitor, NodeTranslator):
     def visit_FencilDefinition(self, node: ir.FencilDefinition):
         return self.generic_visit(node, symtable=node.annex.symtable)
 
+    def visit_Program(self, node: ir.Program):
+        return self.generic_visit(node, symtable=node.annex.symtable)
+
 
 class PruneUnreferencedFundefs(PreserveLocationVisitor, NodeTranslator):
     def visit_FunctionDefinition(
@@ -37,7 +40,13 @@ class PruneUnreferencedFundefs(PreserveLocationVisitor, NodeTranslator):
         referenced.add(node.id)
         return node
 
-    def visit_FencilDefinition(self, node: ir.FencilDefinition):
+    def _visit_root(self, node: ir.Node):
         referenced: Set[str] = set()
         self.generic_visit(node, referenced=referenced, second_pass=False)
         return self.generic_visit(node, referenced=referenced, second_pass=True)
+
+    def visit_FencilDefinition(self, node: ir.FencilDefinition):
+        return self._visit_root(node)
+
+    def visit_Program(self, node: ir.Program):
+        return self._visit_root(node)

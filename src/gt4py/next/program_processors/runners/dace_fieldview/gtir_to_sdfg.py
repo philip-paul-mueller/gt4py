@@ -17,7 +17,7 @@ from __future__ import annotations
 import abc
 import dataclasses
 import itertools
-from typing import Any, Dict, List, Optional, Protocol, Sequence, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Protocol, Sequence, Set, Tuple, TypeVar, Union
 
 import dace
 
@@ -92,6 +92,35 @@ class SDFGBuilder(DataflowBuilder, Protocol):
     def visit(self, node: concepts.RootNode, **kwargs: Any) -> Any:
         """Visit a node of the GT4Py IR."""
         pass
+
+
+def _replace_unsupported_symrefs(ir: gtir.Program, sdfg: dace.SDFG) -> gtir.Program:
+    """Ensure that all symbol names are valid strings (e.g. no unicode-strings)."""
+
+    class ReplaceSymrefs(eve.PreserveLocationVisitor, eve.NodeTranslator):
+        T = TypeVar("T", gtir.Sym, gtir.SymRef)
+
+        def _replace_sym(self, node: T, symtable: Dict[str, str]) -> T:
+            sym = str(node.id)
+            return type(node)(id=symtable.get(sym, sym), type=node.type)
+
+        def visit_Sym(self, node: gtir.Sym, *, symtable: Dict[str, str]) -> gtir.Sym:
+            return self._replace_sym(node, symtable)
+
+        def visit_SymRef(self, node: gtir.SymRef, *, symtable: Dict[str, str]) -> gtir.SymRef:
+            return self._replace_sym(node, symtable)
+
+    if not all(dace.dtypes.validate_name(str(sym.id)) for sym in ir.params):
+        raise ValueError("Unsupport symbol in program parameters.")
+
+    symrefs = {str(sym.id) for sym in eve.walk_values(ir).if_isinstance(gtir.SymRef)}
+    symrefs_mapping = {
+        sym: sdfg.temp_data_name() for sym in symrefs if not dace.dtypes.validate_name(sym)
+    }
+    if symrefs_mapping:
+        return ReplaceSymrefs().visit(ir, symtable=symrefs_mapping)
+    else:
+        return ir
 
 
 @dataclasses.dataclass(frozen=True)
@@ -300,6 +329,9 @@ class GTIRToSDFG(eve.NodeVisitor, SDFGBuilder):
 
         sdfg = dace.SDFG(node.id)
         sdfg.debuginfo = dace_common_util.debug_info(node, default=sdfg.debuginfo)
+
+        node = _replace_unsupported_symrefs(node, sdfg)
+
         entry_state = sdfg.add_state("program_entry", is_start_block=True)
 
         # declarations of temporaries result in transient array definitions in the SDFG
