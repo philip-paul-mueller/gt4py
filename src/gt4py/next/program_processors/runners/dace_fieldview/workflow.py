@@ -58,7 +58,7 @@ class DaCeTranslator(
         ir = inline_fundefs.PruneUnreferencedFundefs().visit(ir)
         ir = inline_lambdas.InlineLambdas.apply(ir, opcount_preserving=True)
         ir = infer_domain.infer_program(ir, offset_provider=offset_provider)
-        ir = collapse_tuple.CollapseTuple.apply(ir)
+        ir = collapse_tuple.CollapseTuple.apply(ir, offset_provider=offset_provider)
 
         ir = infer_type.infer(ir, offset_provider=offset_provider)
 
