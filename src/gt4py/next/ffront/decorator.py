@@ -556,9 +556,10 @@ class FieldOperator(GTCallable, Generic[OperatorNodeT]):
             self, definition_stage=dataclasses.replace(self.definition_stage, grid_type=grid_type)
         )
 
-    def __gt_itir__(self, to_gtir: bool=False) -> itir.FunctionDefinition:
+    def __gt_itir__(self, to_gtir: bool = False) -> itir.FunctionDefinition:
         if to_gtir:
             from gt4py.next.ffront import foast_to_gtir
+
             return foast_to_gtir.foast_to_gtir(self.foast_stage)
 
         if self.backend is not None and self.backend.transforms is not None:

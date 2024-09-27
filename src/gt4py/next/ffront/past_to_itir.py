@@ -86,6 +86,7 @@ def past_to_itir(inp: AOT_PRG, to_gtir: bool = False) -> stages.AOTProgram:
     lowered_funcs = []
     # TODO(tehrengruber): remove this contraption
     from gt4py.next.ffront.decorator import FieldOperator
+
     for gt_callable in gt_callables:
         if isinstance(gt_callable, FieldOperator):
             lowered_funcs.append(gt_callable.__gt_itir__(to_gtir=True))
