@@ -58,9 +58,7 @@ class DaCeTranslator(
         ir = inline_lambdas.InlineLambdas.apply(ir, opcount_preserving=True)
         ir = infer_domain.infer_program(
             ir,
-            offset_provider={
-                k: v for k, v in offset_provider.items() if isinstance(v, common.Dimension)
-            },
+            offset_provider=offset_provider,
         )
         node = collapse_tuple.CollapseTuple.apply(ir, offset_provider=offset_provider)
         assert isinstance(node, itir.Program)
