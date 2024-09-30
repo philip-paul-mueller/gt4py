@@ -24,7 +24,6 @@ from gt4py.next.iterator.transforms import (
     inline_fundefs,
     inline_lambdas,
 )
-from gt4py.next.iterator.type_system import inference as infer_type
 from gt4py.next.otf import languages, recipes, stages, step_types, workflow
 from gt4py.next.otf.binding import interface
 from gt4py.next.otf.languages import LanguageSettings
@@ -57,10 +56,15 @@ class DaCeTranslator(
         ir = inline_fundefs.InlineFundefs().visit(ir)
         ir = inline_fundefs.PruneUnreferencedFundefs().visit(ir)
         ir = inline_lambdas.InlineLambdas.apply(ir, opcount_preserving=True)
-        ir = infer_domain.infer_program(ir, offset_provider=offset_provider)
-        ir = collapse_tuple.CollapseTuple.apply(ir, offset_provider=offset_provider)
-
-        ir = infer_type.infer(ir, offset_provider=offset_provider)
+        ir = infer_domain.infer_program(
+            ir,
+            offset_provider={
+                k: v for k, v in offset_provider.items() if isinstance(v, common.Dimension)
+            },
+        )
+        node = collapse_tuple.CollapseTuple.apply(ir, offset_provider=offset_provider)
+        assert isinstance(node, itir.Program)
+        ir = node
 
         return gtir_to_sdfg.build_sdfg_from_gtir(program=ir, offset_provider=offset_provider)
 
