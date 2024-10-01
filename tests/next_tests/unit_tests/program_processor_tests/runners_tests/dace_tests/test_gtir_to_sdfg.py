@@ -187,6 +187,7 @@ def test_gtir_tuple_swap():
             gtir.SetAt(
                 expr=im.make_tuple("y", "x"),
                 domain=domain,
+                # TODO(havogt): add a frontend check for this pattern
                 target=im.make_tuple("x", "y"),
             )
         ],
@@ -1529,7 +1530,7 @@ def test_gtir_let_lambda():
     )
 
     a = np.random.rand(N)
-    b = np.empty_like(a)
+    b = np.random.rand(N)
     ref = np.concatenate((b[0:1], a[1 : N - 1] * 8, b[N - 1 : N]))
 
     sdfg = dace_backend.build_sdfg_from_gtir(testee, {})

@@ -124,16 +124,19 @@ def fencil_generator(
 
     # TODO(tehrengruber): re-enable apply_common_transforms
     ir = inline_fundefs.InlineFundefs().visit(ir)
-    ir = inline_fundefs.PruneUnreferencedFundefs().visit(ir)
+    ir = inline_fundefs.prune_unreferenced_fundefs(ir)
     ir = inline_lambdas.InlineLambdas.apply(ir, opcount_preserving=True)
-    assert isinstance(ir, itir.Program)
+
+    try:
+        # uses type inference and therefore should only run after domain propagation, but makes some simple cases work for now
+        ir = collapse_tuple.CollapseTuple.apply(ir)
+    except Exception:
+        ...
+
     ir = infer_domain.infer_program(
         ir,
-        offset_provider=offset_provider,
+        offset_provider=offset_provider
     )
-    node = collapse_tuple.CollapseTuple.apply(ir, offset_provider=offset_provider)
-    assert isinstance(node, itir.Program)
-    ir = node
 
     program = EmbeddedDSL.apply(ir)
 
