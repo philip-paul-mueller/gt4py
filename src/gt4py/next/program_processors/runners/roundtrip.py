@@ -89,7 +89,7 @@ _FENCIL_CACHE: dict[int, Callable] = {}
 
 
 def fencil_generator(
-    ir: itir.Node,
+    ir: itir.Program,
     debug: bool,
     lift_mode: itir_transforms.LiftMode,
     use_embedded: bool,
@@ -129,14 +129,13 @@ def fencil_generator(
 
     try:
         # uses type inference and therefore should only run after domain propagation, but makes some simple cases work for now
-        ir = collapse_tuple.CollapseTuple.apply(ir)
+        node = collapse_tuple.CollapseTuple.apply(ir)
+        assert isinstance(node, itir.Program)
+        ir = node
     except Exception:
         ...
 
-    ir = infer_domain.infer_program(
-        ir,
-        offset_provider=offset_provider
-    )
+    ir = infer_domain.infer_program(ir, offset_provider=offset_provider)
 
     program = EmbeddedDSL.apply(ir)
 
@@ -212,6 +211,7 @@ class Roundtrip(workflow.Workflow[stages.AOTProgram, stages.CompiledProgram]):
     def __call__(self, inp: stages.AOTProgram) -> stages.CompiledProgram:
         debug = config.DEBUG if self.debug is None else self.debug
 
+        assert isinstance(inp.data, itir.Program)
         fencil = fencil_generator(
             inp.data,
             offset_provider=inp.args.offset_provider,

@@ -60,14 +60,13 @@ class DaCeTranslator(
 
         try:
             # uses type inference and therefore should only run after domain propagation, but makes some simple cases work for now
-            ir = collapse_tuple.CollapseTuple.apply(ir)
+            node = collapse_tuple.CollapseTuple.apply(ir)
+            assert isinstance(node, itir.Program)
+            ir = node
         except Exception:
             ...
 
-        ir = infer_domain.infer_program(
-            ir,
-            offset_provider=offset_provider
-        )
+        ir = infer_domain.infer_program(ir, offset_provider=offset_provider)
 
         return gtir_to_sdfg.build_sdfg_from_gtir(program=ir, offset_provider=offset_provider)
 
