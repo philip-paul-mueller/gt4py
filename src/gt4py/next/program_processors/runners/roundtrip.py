@@ -107,6 +107,13 @@ def fencil_generator(
                       to debug.
         offset_provider: A mapping from offset names to offset providers.
     """
+    from gt4py.next.iterator.transforms import (
+        collapse_tuple,
+        infer_domain,
+        inline_fundefs,
+        inline_lambdas,
+    )
+
     # TODO(tehrengruber): just a temporary solution until we have a proper generic
     #  caching mechanism
     cache_key = hash((ir, lift_mode, debug, use_embedded, tuple(offset_provider.items())))
@@ -115,9 +122,18 @@ def fencil_generator(
             print(f"Using cached fencil for key {cache_key}")
         return typing.cast(stages.CompiledProgram, _FENCIL_CACHE[cache_key])
 
-    ir = itir_transforms.apply_common_transforms(
-        ir, lift_mode=lift_mode, offset_provider=offset_provider
+    # TODO(tehrengruber): re-enable apply_common_transforms
+    ir = inline_fundefs.InlineFundefs().visit(ir)
+    ir = inline_fundefs.PruneUnreferencedFundefs().visit(ir)
+    ir = inline_lambdas.InlineLambdas.apply(ir, opcount_preserving=True)
+    assert isinstance(ir, itir.Program)
+    ir = infer_domain.infer_program(
+        ir,
+        offset_provider=offset_provider,
     )
+    node = collapse_tuple.CollapseTuple.apply(ir, offset_provider=offset_provider)
+    assert isinstance(node, itir.Program)
+    ir = node
 
     program = EmbeddedDSL.apply(ir)
 

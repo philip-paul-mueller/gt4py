@@ -48,7 +48,7 @@ from .program_processors.runners.gtfn import (
     run_gtfn_cached as gtfn_cpu,
     run_gtfn_gpu_cached as gtfn_gpu,
 )
-from .program_processors.runners.roundtrip import default as itir_python
+from .program_processors.runners.roundtrip import gtir as itir_python
 
 
 __all__ = [
