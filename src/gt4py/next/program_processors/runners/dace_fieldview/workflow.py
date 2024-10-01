@@ -18,12 +18,6 @@ import factory
 from gt4py._core import definitions as core_defs
 from gt4py.next import common, config
 from gt4py.next.iterator import ir as itir
-from gt4py.next.iterator.transforms import (
-    collapse_tuple,
-    infer_domain,
-    inline_fundefs,
-    inline_lambdas,
-)
 from gt4py.next.otf import languages, recipes, stages, step_types, workflow
 from gt4py.next.otf.binding import interface
 from gt4py.next.otf.languages import LanguageSettings
@@ -52,7 +46,14 @@ class DaCeTranslator(
         offset_provider: dict[str, common.Dimension | common.Connectivity],
         column_axis: Optional[common.Dimension],
     ) -> dace.SDFG:
-        # TODO(edopao): ir = itir_transforms.apply_common_transforms(ir)
+        from gt4py.next.iterator.transforms import (
+            collapse_tuple,
+            infer_domain,
+            inline_fundefs,
+            inline_lambdas,
+        )
+
+        # TODO(edopao): re-enable apply_common_transforms
         ir = inline_fundefs.InlineFundefs().visit(ir)
         ir = inline_fundefs.PruneUnreferencedFundefs().visit(ir)
         ir = inline_lambdas.InlineLambdas.apply(ir, opcount_preserving=True)

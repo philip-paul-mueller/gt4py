@@ -127,7 +127,7 @@ def infer_as_fieldop(
     assert isinstance(applied_fieldop, itir.FunCall)
     assert cpm.is_call_to(applied_fieldop.fun, "as_fieldop")
     if target_domain is None:
-        return applied_fieldop, {} # assume unused
+        return applied_fieldop, {}  # assume unused
     if not isinstance(target_domain, SymbolicDomain):
         raise ValueError("'target_domain' needs to be a 'SymbolicDomain'.")
 

@@ -468,7 +468,6 @@ class SymbolicDomain:
             if isinstance(nbt_provider, common.Dimension):
                 if val is trace_shifts.Sentinel.VALUE:
                     return self
-                    # raise NotImplementedError("Dynamic offsets not supported.")
                 assert isinstance(val.value, int)
                 current_dim = nbt_provider
                 # cartesian offset
