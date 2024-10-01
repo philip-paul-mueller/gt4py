@@ -467,7 +467,7 @@ class SymbolicDomain:
             nbt_provider = offset_provider[off.value]
             if isinstance(nbt_provider, common.Dimension):
                 if val is trace_shifts.Sentinel.VALUE:
-                    return self
+                    return self  # will not work in the general case, see https://github.com/GridTools/gt4py/issues/1676
                 assert isinstance(val.value, int)
                 current_dim = nbt_provider
                 # cartesian offset
