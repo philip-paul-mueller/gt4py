@@ -272,11 +272,14 @@ def _convert_as_fieldop_input_to_iterator(
 @_register_builtin_type_synthesizer
 def as_fieldop(
     stencil: TypeSynthesizer,
-    domain: Optional[it_ts.DomainType],
-    offset_provider: common.OffsetProvider,
+    domain: Optional[it_ts.DomainType] = None,
+    offset_provider: Optional[common.OffsetProvider] = None,
 ) -> TypeSynthesizer:
     if domain is None:
         domain = it_ts.DomainType(dims="unknown")  # type: ignore[arg-type]
+
+    if offset_provider is None:
+        offset_provider = {}
 
     @TypeSynthesizer
     def applied_as_fieldop(*fields) -> ts.FieldType:
