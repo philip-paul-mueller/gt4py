@@ -26,13 +26,12 @@ from gt4py.next.program_processors.runners.dace_fieldview import (
     gtir_to_sdfg,
     transformations as gtx_transformations,
 )
-from gt4py.next.type_system import type_translation as tt
 
 
 @dataclasses.dataclass(frozen=True)
 class DaCeTranslator(
     workflow.ChainableWorkflowMixin[
-        stages.AOTProgram, stages.ProgramSource[languages.SDFG, languages.LanguageSettings]
+        stages.CompilableProgram, stages.ProgramSource[languages.SDFG, languages.LanguageSettings]
     ],
     step_types.TranslationStep[languages.SDFG, languages.LanguageSettings],
 ):
@@ -77,7 +76,7 @@ class DaCeTranslator(
         return gtx_transformations.gt_auto_optimize(sdfg, gpu=on_gpu)
 
     def __call__(
-        self, inp: stages.AOTProgram
+        self, inp: stages.CompilableProgram
     ) -> stages.ProgramSource[languages.SDFG, LanguageSettings]:
         """Generate DaCe SDFG file from the GTIR definition."""
         program: itir.FencilDefinition | itir.Program = inp.data
@@ -91,8 +90,8 @@ class DaCeTranslator(
         )
 
         param_types = tuple(
-            interface.Parameter(param, tt.from_value(arg))
-            for param, arg in zip(sdfg.arg_names, inp.args.args)
+            interface.Parameter(param, arg_type)
+            for param, arg_type in zip(sdfg.arg_names, inp.args.args)
         )
 
         module: stages.ProgramSource[languages.SDFG, languages.LanguageSettings] = (
