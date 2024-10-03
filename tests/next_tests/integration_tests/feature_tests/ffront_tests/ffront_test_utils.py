@@ -67,7 +67,7 @@ no_backend = NoBackend(
             marks=pytest.mark.requires_dace,
         ),
         pytest.param(
-            next_tests.definitions.OptionalProgramBackendId.DACE_GPU,
+            next_tests.definitions.OptionalProgramBackendId.GTIR_DACE_GPU,
             marks=(pytest.mark.requires_dace, pytest.mark.requires_gpu),
         ),
     ],
