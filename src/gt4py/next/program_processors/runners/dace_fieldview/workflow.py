@@ -16,13 +16,16 @@ import dace
 import factory
 
 from gt4py._core import definitions as core_defs
-from gt4py.next import common, config
+from gt4py.next import allocators as gtx_allocators, common, config
 from gt4py.next.iterator import ir as itir
 from gt4py.next.otf import languages, recipes, stages, step_types, workflow
 from gt4py.next.otf.binding import interface
 from gt4py.next.otf.languages import LanguageSettings
 from gt4py.next.program_processors.runners.dace_common import workflow as dace_workflow
-from gt4py.next.program_processors.runners.dace_fieldview import gtir_to_sdfg
+from gt4py.next.program_processors.runners.dace_fieldview import (
+    gtir_to_sdfg,
+    transformations as gtx_transformations,
+)
 from gt4py.next.type_system import type_translation as tt
 
 
@@ -45,6 +48,7 @@ class DaCeTranslator(
         ir: itir.Program,
         offset_provider: common.OffsetProvider,
         column_axis: Optional[common.Dimension],
+        on_gpu: bool,
     ) -> dace.SDFG:
         from gt4py.next.iterator.transforms import (
             collapse_tuple,
@@ -68,7 +72,9 @@ class DaCeTranslator(
 
         ir = infer_domain.infer_program(ir, offset_provider=offset_provider)
 
-        return gtir_to_sdfg.build_sdfg_from_gtir(program=ir, offset_provider=offset_provider)
+        sdfg = gtir_to_sdfg.build_sdfg_from_gtir(program=ir, offset_provider=offset_provider)
+
+        return gtx_transformations.gt_auto_optimize(sdfg, gpu=on_gpu)
 
     def __call__(
         self, inp: stages.AOTProgram
@@ -81,6 +87,7 @@ class DaCeTranslator(
             program,
             inp.args.offset_provider,
             inp.args.column_axis,
+            on_gpu=(self.device_type == gtx_allocators.CUPY_DEVICE),
         )
 
         param_types = tuple(
