@@ -14,6 +14,7 @@ from typing import Optional
 
 import dace
 import factory
+from dace.transformation.auto import auto_optimize as dace_autoopt
 
 from gt4py._core import definitions as core_defs
 from gt4py.next import allocators as gtx_allocators, common, config
@@ -47,7 +48,8 @@ class DaCeTranslator(
         ir: itir.Program,
         offset_provider: common.OffsetProvider,
         column_axis: Optional[common.Dimension],
-        on_gpu: bool,
+        auto_opt: bool = False,
+        on_gpu: bool = False,
     ) -> dace.SDFG:
         from gt4py.next.iterator.transforms import (
             collapse_tuple,
@@ -73,7 +75,12 @@ class DaCeTranslator(
 
         sdfg = gtir_to_sdfg.build_sdfg_from_gtir(program=ir, offset_provider=offset_provider)
 
-        return gtx_transformations.gt_auto_optimize(sdfg, gpu=on_gpu)
+        if auto_opt:
+            return gtx_transformations.gt_auto_optimize(sdfg, gpu=on_gpu)
+        elif on_gpu:
+            dace_autoopt.apply_gpu_storage(sdfg)
+
+        return sdfg
 
     def __call__(
         self, inp: stages.CompilableProgram
@@ -86,6 +93,7 @@ class DaCeTranslator(
             program,
             inp.args.offset_provider,
             inp.args.column_axis,
+            auto_opt=True,
             on_gpu=(self.device_type == gtx_allocators.CUPY_DEVICE),
         )
 
