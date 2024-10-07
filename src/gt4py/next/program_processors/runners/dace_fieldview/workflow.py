@@ -136,7 +136,8 @@ class DaCeWorkflowFactory(factory.Factory):
         cmake_build_type: config.CMakeBuildType = factory.LazyFunction(
             lambda: config.CMAKE_BUILD_TYPE
         )
-        auto_optimize: bool = True
+        # This allows us to control it from the outside.
+        auto_optimize: bool = False
 
     translation = factory.SubFactory(
         DaCeTranslationStepFactory,
