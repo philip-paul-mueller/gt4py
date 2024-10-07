@@ -152,11 +152,12 @@ def test_only_dependent():
     ref = reff(a, b)
 
     # Apply the transformation
-    sdfg.apply_transformations_repeated(
+    nb_apply = sdfg.apply_transformations_repeated(
         gtx_transformations.LoopBlocking(blocking_size=10, blocking_parameter="j"),
         validate=True,
         validate_all=True,
     )
+    assert nb_apply > 0
 
     assert len(sdfg.states()) == 1
     state = sdfg.states()[0]
@@ -216,11 +217,12 @@ def test_intermediate_access_node():
     assert np.allclose(ref, c)
 
     # Apply the transformation.
-    sdfg.apply_transformations_repeated(
+    nb_apply = sdfg.apply_transformations_repeated(
         gtx_transformations.LoopBlocking(blocking_size=10, blocking_parameter="j"),
         validate=True,
         validate_all=True,
     )
+    assert nb_apply > 0
 
     # Inspect if the SDFG was modified correctly.
     #  We only inspect `tmp` which now has to be between the two maps.
@@ -254,12 +256,12 @@ def test_chained_access() -> None:
     c[:] = 0
 
     # Apply the transformation.
-    ret = sdfg.apply_transformations_repeated(
+    nb_apply = sdfg.apply_transformations_repeated(
         gtx_transformations.LoopBlocking(blocking_size=10, blocking_parameter="j"),
         validate=True,
         validate_all=True,
     )
-    assert ret == 1, f"Expected that the transformation was applied 1 time, but it was {ret}."
+    assert nb_apply == 1, f"Expected that the transformation was applied 1 time, but it was {ret}."
 
     # Now run the SDFG to see if it is still the same
     sdfg(a=a, b=b, c=c, M=M, N=N)
