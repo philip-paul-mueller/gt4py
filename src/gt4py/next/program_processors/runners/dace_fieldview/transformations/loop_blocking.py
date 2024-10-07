@@ -59,8 +59,8 @@ class LoopBlocking(dace_transformation.SingleStateTransformation):
         desc="Name of the iteration variable on which to block (must be an exact match);"
         " 'I' in the above description.",
     )
-    independent_nodes: set[dace_nodes.Node] | None
-    dependent_nodes: set[dace_nodes.Node] | None
+    _independent_nodes: set[dace_nodes.Node] | None
+    _dependent_nodes: set[dace_nodes.Node] | None
 
     outer_entry = dace_transformation.transformation.PatternNode(dace_nodes.MapEntry)
 
@@ -76,8 +76,8 @@ class LoopBlocking(dace_transformation.SingleStateTransformation):
             self.blocking_parameter = blocking_parameter
         if blocking_size is not None:
             self.blocking_size = blocking_size
-        self.independent_nodes = None
-        self.dependent_nodes = None
+        self._independent_nodes = None
+        self._dependent_nodes = None
 
     @classmethod
     def expressions(cls) -> Any:
@@ -147,8 +147,8 @@ class LoopBlocking(dace_transformation.SingleStateTransformation):
         )
 
         # Clear the old partitions
-        self.independent_nodes = None
-        self.dependent_nodes = None
+        self._independent_nodes = None
+        self._dependent_nodes = None
 
     def _prepare_inner_outer_maps(
         self,
@@ -261,8 +261,8 @@ class LoopBlocking(dace_transformation.SingleStateTransformation):
         """
 
         # Clear the previous partition.
-        self.independent_nodes = set()
-        self.dependent_nodes = None
+        self._independent_nodes = set()
+        self._dependent_nodes = None
 
         while True:
             # Find all the nodes that we have to classify in this iteration.
@@ -271,9 +271,9 @@ class LoopBlocking(dace_transformation.SingleStateTransformation):
             nodes_to_classify: set[dace_nodes.Node] = {
                 edge.dst for edge in state.out_edges(self.outer_entry)
             }
-            for independent_node in self.independent_nodes:
+            for independent_node in self._independent_nodes:
                 nodes_to_classify.update({edge.dst for edge in state.out_edges(independent_node)})
-            nodes_to_classify.difference_update(self.independent_nodes)
+            nodes_to_classify.difference_update(self._independent_nodes)
 
             # Now classify each node
             found_new_independent_node = False
@@ -286,7 +286,7 @@ class LoopBlocking(dace_transformation.SingleStateTransformation):
 
                 # Check if the partition exists.
                 if class_res is None:
-                    self.independent_nodes = None
+                    self._independent_nodes = None
                     return False
                 if class_res is True:
                     found_new_independent_node = True
@@ -297,10 +297,10 @@ class LoopBlocking(dace_transformation.SingleStateTransformation):
 
         # After the independent set is computed compute the set of dependent nodes
         #  as the set of all nodes adjacent to `outer_entry` that are not dependent.
-        self.dependent_nodes = {
+        self._dependent_nodes = {
             edge.dst
             for edge in state.out_edges(self.outer_entry)
-            if edge.dst not in self.independent_nodes
+            if edge.dst not in self._independent_nodes
         }
 
         return True
@@ -325,7 +325,7 @@ class LoopBlocking(dace_transformation.SingleStateTransformation):
 
         Returns:
             The function returns `True` if `node_to_classify` is considered independent.
-            In this case the function will add the node to `self.independent_nodes`.
+            In this case the function will add the node to `self._independent_nodes`.
             If the function returns `False` the node was classified as a dependent node.
             The function will return `None` if the node can not be classified, in this
             case the partition does not exist.
@@ -335,7 +335,8 @@ class LoopBlocking(dace_transformation.SingleStateTransformation):
             state: The state containing the map.
             sdfg: The SDFG that is processed.
         """
-        assert self.dependent_nodes is not None and self.independent_nodes is not None
+        assert self._dependent_nodes is None
+        assert self._independent_nodes is not None
         outer_entry: dace_nodes.MapEntry = self.outer_entry  # for caching.
 
         # We are only able to handle certain kind of nodes, so screening them.
@@ -429,11 +430,11 @@ class LoopBlocking(dace_transformation.SingleStateTransformation):
 
             # The edge must either originate from `outer_entry` or from an independent
             #  node if not it is dependent.
-            if not (in_edge.src is outer_entry or in_edge.src in self.independent_nodes):
+            if not (in_edge.src is outer_entry or in_edge.src in self._independent_nodes):
                 return False
 
         # Loop ended normally, thus we classify the node as independent.
-        self.independent_nodes.add(node_to_classify)
+        self._independent_nodes.add(node_to_classify)
         return True
 
     def _rewire_map_scope(
@@ -460,7 +461,7 @@ class LoopBlocking(dace_transformation.SingleStateTransformation):
             state: The state of the map.
             sdfg: The SDFG we operate on.
         """
-        assert self.dependent_nodes is not None and self.independent_nodes is not None
+        assert self._dependent_nodes is not None and self._independent_nodes is not None
 
         # Contains the nodes that are already have been handled.
         relocated_nodes: set[dace_nodes.Node] = set()
@@ -468,7 +469,7 @@ class LoopBlocking(dace_transformation.SingleStateTransformation):
         # We now handle all independent nodes, this means that all of their
         #  _output_ edges have to go through the new inner map and the Memlets need
         #  modifications, because of the block parameter.
-        for independent_node in self.independent_nodes:
+        for independent_node in self._independent_nodes:
             for out_edge in state.out_edges(independent_node):
                 edge_dst: dace_nodes.Node = out_edge.dst
                 relocated_nodes.add(edge_dst)
@@ -476,7 +477,7 @@ class LoopBlocking(dace_transformation.SingleStateTransformation):
                 # If destination of this edge is also independent we do not need
                 #  to handle it, because that node will also be before the new
                 #  inner serial map.
-                if edge_dst in self.independent_nodes:
+                if edge_dst in self._independent_nodes:
                     continue
 
                 # Now split `out_edge` such that it passes through the new inner entry.
@@ -503,7 +504,7 @@ class LoopBlocking(dace_transformation.SingleStateTransformation):
 
         # Now we handle the dependent nodes, they differ from the independent nodes
         #  in that they _after_ the new inner map entry. Thus, we will modify incoming edges.
-        for dependent_node in self.dependent_nodes:
+        for dependent_node in self._dependent_nodes:
             for in_edge in state.in_edges(dependent_node):
                 edge_src: dace_nodes.Node = in_edge.src
 
