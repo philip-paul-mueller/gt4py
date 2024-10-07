@@ -77,7 +77,10 @@ class DaCeTranslator(
         if auto_opt:
             return gtx_transformations.gt_auto_optimize(sdfg, gpu=on_gpu)
         elif on_gpu:
-            gtx_transformations.gt_gpu_transformation(sdfg)
+            gtx_transformations.gt_gpu_transformation(
+                sdfg,
+                try_removing_trivial_maps=False,  # Without it, we would have fusion.
+            )
 
         return sdfg
 
