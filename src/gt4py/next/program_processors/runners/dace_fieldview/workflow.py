@@ -37,6 +37,7 @@ class DaCeTranslator(
     step_types.TranslationStep[languages.SDFG, languages.LanguageSettings],
 ):
     device_type: core_defs.DeviceType = core_defs.DeviceType.CPU
+    auto_optimize: bool = True
 
     def _language_settings(self) -> languages.LanguageSettings:
         return languages.LanguageSettings(
@@ -48,8 +49,8 @@ class DaCeTranslator(
         ir: itir.Program,
         offset_provider: common.OffsetProvider,
         column_axis: Optional[common.Dimension],
-        auto_opt: bool = False,
-        on_gpu: bool = False,
+        auto_opt: bool,
+        on_gpu: bool,
     ) -> dace.SDFG:
         from gt4py.next.iterator.transforms import (
             collapse_tuple,
@@ -93,7 +94,7 @@ class DaCeTranslator(
             program,
             inp.args.offset_provider,
             inp.args.column_axis,
-            auto_opt=True,
+            auto_opt=self.auto_optimize,
             on_gpu=(self.device_type == gtx_allocators.CUPY_DEVICE),
         )
 
