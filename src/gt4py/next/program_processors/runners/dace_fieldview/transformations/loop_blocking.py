@@ -59,22 +59,8 @@ class LoopBlocking(dace_transformation.SingleStateTransformation):
         desc="Name of the iteration variable on which to block (must be an exact match);"
         " 'I' in the above description.",
     )
-    independent_nodes = dace_properties.Property(
-        dtype=set,
-        allow_none=True,
-        default=None,
-        optional=True,
-        optional_condition=lambda _: False,
-        desc="Set of nodes that are independent of the blocking parameter.",
-    )
-    dependent_nodes = dace_properties.Property(
-        dtype=set,
-        allow_none=True,
-        default=None,
-        optional=True,
-        optional_condition=lambda _: False,
-        desc="Set of nodes that are dependent on the blocking parameter.",
-    )
+    independent_nodes: set[dace_nodes.Node] | None
+    dependent_nodes: set[dace_nodes.Node] | None
 
     outer_entry = dace_transformation.transformation.PatternNode(dace_nodes.MapEntry)
 
@@ -90,6 +76,8 @@ class LoopBlocking(dace_transformation.SingleStateTransformation):
             self.blocking_parameter = blocking_parameter
         if blocking_size is not None:
             self.blocking_size = blocking_size
+        self.independent_nodes = None
+        self.dependent_nodes = None
 
     @classmethod
     def expressions(cls) -> Any:
@@ -347,6 +335,7 @@ class LoopBlocking(dace_transformation.SingleStateTransformation):
             state: The state containing the map.
             sdfg: The SDFG that is processed.
         """
+        assert self.dependent_nodes is not None and self.independent_nodes is not None
         outer_entry: dace_nodes.MapEntry = self.outer_entry  # for caching.
 
         # We are only able to handle certain kind of nodes, so screening them.
@@ -471,6 +460,7 @@ class LoopBlocking(dace_transformation.SingleStateTransformation):
             state: The state of the map.
             sdfg: The SDFG we operate on.
         """
+        assert self.dependent_nodes is not None and self.independent_nodes is not None
 
         # Contains the nodes that are already have been handled.
         relocated_nodes: set[dace_nodes.Node] = set()
