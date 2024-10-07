@@ -134,10 +134,12 @@ class DaCeWorkflowFactory(factory.Factory):
         cmake_build_type: config.CMakeBuildType = factory.LazyFunction(
             lambda: config.CMAKE_BUILD_TYPE
         )
+        auto_optimize: bool = True
 
     translation = factory.SubFactory(
         DaCeTranslationStepFactory,
         device_type=factory.SelfAttribute("..device_type"),
+        auto_optimize=factory.SelfAttribute("..auto_optimize"),
     )
     bindings = _no_bindings
     compilation = factory.SubFactory(
