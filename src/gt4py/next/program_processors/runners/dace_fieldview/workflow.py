@@ -14,7 +14,6 @@ from typing import Optional
 
 import dace
 import factory
-from dace.transformation.auto import auto_optimize as dace_autoopt
 
 from gt4py._core import definitions as core_defs
 from gt4py.next import allocators as gtx_allocators, common, config
@@ -78,7 +77,7 @@ class DaCeTranslator(
         if auto_opt:
             return gtx_transformations.gt_auto_optimize(sdfg, gpu=on_gpu)
         elif on_gpu:
-            dace_autoopt.apply_gpu_storage(sdfg)
+            gtx_transformations.gt_gpu_transformation(sdfg)
 
         return sdfg
 
@@ -93,7 +92,9 @@ class DaCeTranslator(
             program,
             inp.args.offset_provider,
             inp.args.column_axis,
-            auto_opt=True,
+            # TODO: Is there a way to disable/enable this from the outside?
+            #       It is quite annoying to test the non optimized version.
+            auto_opt=False,
             on_gpu=(self.device_type == gtx_allocators.CUPY_DEVICE),
         )
 
