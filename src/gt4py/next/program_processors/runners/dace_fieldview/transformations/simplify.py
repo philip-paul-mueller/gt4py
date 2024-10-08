@@ -147,7 +147,7 @@ def gt_inline_nested_sdfg(
     permissive: bool = False,
     validate: bool = True,
     validate_all: bool = False,
-) -> dace.SDFG:
+) -> Optional[dict[str, int]]:
     """Perform inlining of nested SDFG into their parent SDFG.
 
     The function uses DaCe's `InlineSDFG` transformation, the same used in simplify.
@@ -163,12 +163,15 @@ def gt_inline_nested_sdfg(
         validate_all: Performs extensive validation.
     """
     first_iteration = True
+    nb_preproccess_total = 0
+    nb_inlines_total = 0
     while True:
         nb_preproccess = sdfg.apply_transformations_repeated(
             [dace_dataflow.PruneSymbols, dace_dataflow.PruneConnectors],
             validate=False,
             validate_all=validate_all,
         )
+        nb_preproccess_total += nb_preproccess
         if (nb_preproccess == 0) and (not first_iteration):
             break
 
@@ -179,7 +182,9 @@ def gt_inline_nested_sdfg(
         inline_sdfg.multistate = multistate
 
         # Apply the inline pass
-        nb_inlines = inline_sdfg.apply_pass(sdfg, {})
+        #  The pass returns `None` no indicate "nothing was done"
+        nb_inlines = inline_sdfg.apply_pass(sdfg, {}) or 0
+        nb_inlines_total += nb_inlines
 
         # Check result, if needed and test if we can stop
         if validate_all or validate:
@@ -188,7 +193,12 @@ def gt_inline_nested_sdfg(
             break
         first_iteration = False
 
-    return sdfg
+    result: dict[str, int] = {}
+    if nb_inlines_total != 0:
+        result["InlineSDFGs"] = nb_inlines_total
+    if nb_preproccess_total != 0:
+        result["PruneSymbols|PruneConnectors"] = nb_preproccess_total
+    return result if result else None
 
 
 @dace_properties.make_properties
