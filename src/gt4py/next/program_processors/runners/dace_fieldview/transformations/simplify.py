@@ -43,7 +43,7 @@ def gt_simplify(
     validate: bool = True,
     validate_all: bool = False,
     skip: Optional[Iterable[str]] = None,
-) -> Any:
+) -> Optional[dict[str, Any]]:
     """Performs simplifications on the SDFG in place.
 
     Instead of calling `sdfg.simplify()` directly, you should use this function,
@@ -76,14 +76,18 @@ def gt_simplify(
     # Ensure that `skip` is a `set`
     skip = GT_SIMPLIFY_DEFAULT_SKIP_SET if skip is None else set(skip)
 
+    result: Optional[dict[str, Any]] = None
+
     if "InlineSDFGs" not in skip:
-        gt_inline_nested_sdfg(
+        inline_res = gt_inline_nested_sdfg(
             sdfg=sdfg,
             multistate=True,
             permissive=False,
             validate=validate,
             validate_all=validate_all,
         )
+        if inline_res is not None:
+            result = inline_res
 
     simplify_res = dace_passes.SimplifyPass(
         validate=validate,
@@ -92,14 +96,21 @@ def gt_simplify(
         skip=(skip | {"InlineSDFGs"}),
     ).apply_pass(sdfg, {})
 
+    if simplify_res is not None:
+        result = result or {}
+        result.update(simplify_res)
+
     if "GT4PyRednundantArrayElimination" not in skip:
-        simplify_res["GT4PyRednundantArrayElimination"] = sdfg.apply_transformations_repeated(
+        array_elimination_result = sdfg.apply_transformations_repeated(
             GT4PyRednundantArrayElimination(),
             validate=validate,
             validate_all=validate_all,
         )
+        if array_elimination_result is not None:
+            result = result or {}
+            result["GT4PyRednundantArrayElimination"] = array_elimination_result
 
-    return simplify_res
+    return result
 
 
 def gt_set_iteration_order(
