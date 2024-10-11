@@ -464,6 +464,13 @@ class TrivialGPUMapElimination(dace_transformation.SingleStateTransformation):
         ):
             return False
 
+        # The second map shall not be trivial. This is to prevent the case that
+        #  there are two trivial maps one after the other.
+        if len(second_map.params) <= 1:
+            for rng in second_map.range.ranges:
+                if rng[0] == rng[1]:
+                    return False
+
         # This is a cheap way to check if the two maps can be fused.
         #  TODO(phimuell): Use `can_be_applied_to()` to really check this.
         if graph.in_degree(access_node) != 1:
@@ -503,7 +510,7 @@ class TrivialGPUMapElimination(dace_transformation.SingleStateTransformation):
         self._promote_map(graph)
 
         # Perform the fusing if requested.
-        if self.do_not_fuse:
+        if not self.do_not_fuse:
             gtx_transformations.MapFusionSerial.apply_to(
                 sdfg=sdfg,
                 map_exit_1=trivial_map_exit,
