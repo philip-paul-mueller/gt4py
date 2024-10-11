@@ -23,7 +23,7 @@ from gt4py.next.otf.binding import interface
 from gt4py.next.otf.languages import LanguageSettings
 from gt4py.next.program_processors.runners.dace_common import workflow as dace_workflow
 from gt4py.next.program_processors.runners.dace_fieldview import (
-    gtir_to_sdfg,
+    gtir_sdfg,
     transformations as gtx_transformations,
 )
 
@@ -73,7 +73,7 @@ class DaCeTranslator(
 
         ir = infer_domain.infer_program(ir, offset_provider=offset_provider)
 
-        sdfg = gtir_to_sdfg.build_sdfg_from_gtir(program=ir, offset_provider=offset_provider)
+        sdfg = gtir_sdfg.build_sdfg_from_gtir(ir=ir, offset_provider=offset_provider)
 
         if auto_opt:
             return gtx_transformations.gt_auto_optimize(sdfg, gpu=on_gpu)
