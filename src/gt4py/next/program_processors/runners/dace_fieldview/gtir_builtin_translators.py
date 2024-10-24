@@ -319,7 +319,9 @@ def translate_broadcast_scalar(
 
     domain = extract_domain(domain_expr)
     field_dims, field_shape = _get_field_shape(domain)
-    domain_indices = sbs.Indices([dace_gtir_utils.get_map_variable(dim) for dim in field_dims])
+    field_subset = sbs.Range.from_string(
+        ",".join(dace_gtir_utils.get_map_variable(dim) for dim in field_dims)
+    )
 
     assert len(node.args) == 1
     scalar_expr = _parse_fieldop_arg(node.args[0], sdfg, state, sdfg_builder, domain)
@@ -335,14 +337,14 @@ def translate_broadcast_scalar(
         if not all(
             isinstance(scalar_expr.indices[dim], gtir_dataflow.SymbolExpr)
             for dim in scalar_expr.dimensions
-            if dim not in domain_indices
+            if dim not in field_dims
         ):
             raise ValueError(f"Cannot deref field {scalar_expr.field} in broadcast expression.")
         input_node = scalar_expr.field
         input_subset = ",".join(
             dace_gtir_utils.get_map_variable(dim)
-            if dim in domain_indices
-            else scalar_expr.indices[dim].value  # type: ignore[union-attr]
+            if dim in field_dims
+            else scalar_expr.indices[dim].value  # type: ignore[union-attr] # catched by exception above
             for dim in scalar_expr.dimensions
         )
         gt_dtype = node.args[0].type.dtype
@@ -361,7 +363,7 @@ def translate_broadcast_scalar(
         },
         inputs={"__inp": dace.Memlet(data=input_node.data, subset=input_subset)},
         code="__val = __inp",
-        outputs={"__val": dace.Memlet(data=out_node.data, subset=domain_indices)},
+        outputs={"__val": dace.Memlet(data=out_node.data, subset=field_subset)},
         input_nodes={input_node.data: input_node},
         output_nodes={out_node.data: out_node},
         external_edges=True,
