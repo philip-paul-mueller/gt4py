@@ -61,7 +61,11 @@ def test_gt4py_redundant_array_elimination():
     state.add_nedge(
         state.add_access("c"),
         tmp1,
-        dace.Memlet("c[0:2, 0:2] -> 18:20, 17:19"),
+        dace.Memlet.simple(
+            data="c",
+            subset_str="0:2, 0:2",
+            other_subset_str="18:20, 17:19",
+        ),
     )
     state.add_nedge(
         state.add_access("d"),
@@ -77,7 +81,7 @@ def test_gt4py_redundant_array_elimination():
     )
     sdfg.validate()
 
-    count = sdfg.apply_transformations(
+    count = sdfg.apply_transformations_repeated(
         gtx_transformations.GT4PyRednundantArrayElimination(),
         validate_all=True,
     )
@@ -122,12 +126,13 @@ def test_gt4py_redundant_array_elimination_unequal_shape():
     sdfg.validate()
 
     origin = np.array(np.random.rand(30), dtype=np.float64, copy=True)
-    v_ref = np.array(np.random.rand(10), dtype=np.float64, copy=True)
-    v_ref[1:9] = 0.0
+    v_ref = np.zeros((10), dtype=np.float64)
+    v_ref_init = v_ref.copy()
     v_res = v_ref.copy()
 
     csdfg_org = sdfg.compile()
     csdfg_org(origin=origin, v=v_ref)
+    assert not np.allclose(v_ref, v_ref_init)
 
     count = sdfg.apply_transformations_repeated(
         gtx_transformations.GT4PyRednundantArrayElimination(),

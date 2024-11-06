@@ -419,10 +419,19 @@ class GT4PyRednundantArrayElimination(dace_transformation.SingleStateTransformat
                         read_src_subset = dace_subsets.Range.from_array(read_desc)
                     read_src_subset_min = read_src_subset.min_element()
                     if read_src_subset_min != write_subset_min:
+                        print(f"NOT SAME START2({read_an.data}|{write_an.data}): {read_src_subset_min} | {write_subset_min}")
                         return False
         else:
             # They have different shapes, which is much more complicated to handle.
             if graph.in_degree(read_an) != 1:
+                return False
+
+            read_in_edge = next(iter(graph.in_edges(read_an)))
+            read_out_edge = next(iter(graph.out_edges(read_an)))
+
+            # We also request that `read` is written to by another access node.
+            #  Because it is the only way how we can control what we write into `read`.
+            if not isinstance(read_in_edge.dst, dace_nodes.AccessNode):
                 return False
 
             # Check if everything that is read from `read` is also defined.
@@ -430,8 +439,6 @@ class GT4PyRednundantArrayElimination(dace_transformation.SingleStateTransformat
             #  later on. If we would remove this restriction it means that we would
             #  allow to copy around undefined data. Which might be helpful in some
             #  cases, especially in chains, but we currently do not handle it.
-            read_in_edge = next(iter(graph.in_edges(read_an)))
-            read_out_edge = next(iter(graph.out_edges(read_an)))
             read_isubset = read_in_edge.data.get_dst_subset(read_in_edge, graph)
             read_osubset = read_out_edge.data.get_src_subset(read_out_edge, graph)
             if read_osubset is None:
@@ -442,13 +449,8 @@ class GT4PyRednundantArrayElimination(dace_transformation.SingleStateTransformat
                 return False
             if not isinstance(read_osubset, dace_subsets.Range):
                 return False
-            if read_isubset.size() != read_osubset.size():
+            if read_osubset.covers(read_isubset):
                 return False
-
-        # Check if used anywhere else.
-        # TODO(phimuell): Find a way to cache this information.
-        if self._check_if_read_is_used_downstream(graph, sdfg):
-            return False
 
         return True
 
