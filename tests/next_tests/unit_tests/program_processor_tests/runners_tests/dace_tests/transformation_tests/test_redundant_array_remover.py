@@ -148,6 +148,71 @@ def test_gt4py_redundant_array_elimination_unequal_shape():
     assert np.allclose(v_ref, v_res), f"Expected {v_ref}, but got {v_res}."
 
 
+def test_gt4py_redundant_array_elimination_unequal_shape_2():
+    sdfg: dace.SDFG = dace.SDFG(
+        util.unique_name("test_gt4py_redundant_array_elimination_full_read")
+    )
+    state: dace.SDFGState = sdfg.add_state(is_start_block=True)
+    array_names = ["input_", "read", "write", "output_"]
+    for name in array_names:
+        sdfg.add_array(
+            name,
+            shape=(50,),
+            dtype=dace.float64,
+            transient=True,
+        )
+    sdfg.arrays["input_"].transient = False
+    sdfg.arrays["write"].shape = (100,)
+    sdfg.arrays["write"].total_size = 100
+    sdfg.arrays["output_"].transient = False
+    sdfg.arrays["output_"].shape = (100,)
+    sdfg.arrays["output_"].total_size = 100
+    input_, read, write, output_ = (state.add_access(name) for name in array_names)
+    state.remove_node(output_)
+
+    def _mk_memlet(an):
+        return dace.Memlet.from_array(an.data, an.desc(sdfg))
+
+    state.add_nedge(input_, read, _mk_memlet(input_))
+    state.add_nedge(
+        read,
+        write,
+        dace.Memlet.simple(data="read", subset_str="0:50", other_subset_str="10:60"),
+    )
+
+    state2 = sdfg.add_state_after(state)
+    write2 = state2.add_access("write")
+    state2.add_nedge(write2, state2.add_access("output_"), _mk_memlet(write2))
+    sdfg.validate()
+
+    call_args = {
+        "input_": np.array(np.random.rand(50), dtype=np.float64, copy=True),
+        "output_": np.array(np.random.rand(100), dtype=np.float64, copy=True),
+    }
+
+    transformation_applied = False
+    try:
+        gtx_transformations.GT4PyRednundantArrayElimination.apply_to(
+            verify=True,
+            sdfg=sdfg,
+            read=read,
+            write=write,
+        )
+        transformation_applied = True
+    except ValueError as e:
+        pass
+    assert transformation_applied
+
+    # Now compile the SDFG again to see if there were changes.
+    csdfg = sdfg.compile()
+    csdfg(**call_args)
+
+    assert np.allclose(
+        call_args["input_"],
+        call_args["output_"][10:60],
+    )
+
+
 def _make_too_big_copy_sdfg(
     write_is_global: bool,
     offset_starts_at_zero: bool,
@@ -190,13 +255,18 @@ def _make_too_big_copy_sdfg(
 
     state.add_nedge(input_, tmp, _mk_memlet(tmp))
     state.add_nedge(tmp, read, _mk_memlet(read))
-    state.add_nedge(
-        read,
-        write,
-        dace.Memlet("read[0:50] -> [0:50]")
-        if offset_starts_at_zero
-        else dace.Memlet("read[0:50] -> [10:60]"),
-    )
+    if offset_starts_at_zero:
+        state.add_nedge(
+            read,
+            write,
+            dace.Memlet.simple(data="read", subset_str="0:50", other_subset_str="0:50"),
+        )
+    else:
+        state.add_nedge(
+            read,
+            write,
+            dace.Memlet.simple(data="read", subset_str="0:50", other_subset_str="10:60"),
+        )
 
     state2 = sdfg.add_state_after(state)
     return_s2 = state2.add_access("return_")
@@ -272,7 +342,6 @@ def _apply_and_run_to_big_copy_sdfg(
         )
         transformation_applied = True
     except ValueError as e:
-        raise
         pass
     assert transformation_applied
 
@@ -348,3 +417,35 @@ def test_gt4py_redundant_array_elimination_too_big_global_diff_off():
         offset_starts_at_zero=False,
         should_apply=False,
     )
+
+
+def test_gt4py_redundant_array_elimination_self_write():
+    """
+    The producer of `read` is also `write`.
+
+    This is only allowed if `write` is global, however, in any cases it is forbidden.
+    """
+    sdfg: dace.SDFG = dace.SDFG(
+        util.unique_name("test_gt4py_redundant_array_elimination_same_read")
+    )
+    state: dace.SDFGState = sdfg.add_state(is_start_block=True)
+
+    for name in ["input_", "tmp"]:
+        sdfg.add_array(name, shape=(100,), dtype=dace.float64, transient=True)
+    sdfg.arrays["input_"].transient = False
+
+    input_ = state.add_access("input_")
+    read = state.add_access("tmp")
+    write = state.add_access("input_")  # Intentional
+
+    def _mk_memlet(an):
+        return dace.Memlet.from_array(an.data, an.desc(sdfg))
+
+    state.add_nedge(input_, read, _mk_memlet(input_))
+    state.add_nedge(read, write, _mk_memlet(write))
+
+    count = sdfg.apply_transformations_repeated(
+        gtx_transformations.GT4PyRednundantArrayElimination(),
+        validate_all=True,
+    )
+    assert count == 0
