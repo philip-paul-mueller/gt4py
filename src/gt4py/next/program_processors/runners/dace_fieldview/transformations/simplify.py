@@ -371,13 +371,6 @@ class GT4PyRednundantArrayElimination(dace_transformation.SingleStateTransformat
         #  that the array is fully written to. Because of our SDFG structure.
         #  What we accepts depends on if `read` and `write` have the same shape.
         if write_desc.shape == read_desc.shape:
-            # Special case that we handle first. If `read` is fully read, then accept it
-            read_out_edge = next(iter(graph.out_edges(read_an)))
-            read_src_subset = read_out_edge.data.get_src_subset(read_out_edge, graph)
-            read_src_subset_size = tuple(read_src_subset.size())
-            if read_src_subset_size == tuple(read_desc.shape):
-                return True
-
             # If `read` and write` have the same shape, then there are only one
             #  kind of restriction. Consider the following:
             # ```
@@ -400,6 +393,7 @@ class GT4PyRednundantArrayElimination(dace_transformation.SingleStateTransformat
             #   write[0:50] = read[25:75]  # noqa: ERA001 [commented-out-code]
             # ```
             #  This is a problem, because now we need to introduce offsets.
+            read_out_edge = next(iter(graph.out_edges(read_an)))
             write_dst_subset = read_out_edge.data.get_dst_subset(read_out_edge, graph)
             if write_dst_subset is None:
                 write_dst_subset = dace_subsets.Range.from_array(write_desc)
@@ -466,7 +460,10 @@ class GT4PyRednundantArrayElimination(dace_transformation.SingleStateTransformat
                 return False
             if not isinstance(read_osubset, dace_subsets.Range):
                 return False
-            if read_osubset.covers(read_isubset):
+            # If everything is written into `read` that is not also read later and
+            #  transferred to `write`. However, we have to exclude the case if both
+            #  have the same size.
+            if read_osubset.covers(read_isubset) and (not read_osubset == read_isubset):
                 return False
 
         return True
