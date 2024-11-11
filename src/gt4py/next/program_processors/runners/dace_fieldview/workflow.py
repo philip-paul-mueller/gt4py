@@ -14,12 +14,10 @@ from typing import Optional
 
 import dace
 import factory
-from dace.transformation.auto import auto_optimize as dace_autoopt
 
 from gt4py._core import definitions as core_defs
 from gt4py.next import allocators as gtx_allocators, common, config
 from gt4py.next.iterator import ir as itir, transforms as itir_transforms
-from gt4py.next.iterator.transforms import infer_domain
 from gt4py.next.otf import languages, recipes, stages, step_types, workflow
 from gt4py.next.otf.binding import interface
 from gt4py.next.otf.languages import LanguageSettings
@@ -54,14 +52,12 @@ class DaCeTranslator(
         on_gpu: bool,
     ) -> dace.SDFG:
         ir = itir_transforms.apply_fieldview_transforms(ir, offset_provider=offset_provider)
-        ir = infer_domain.infer_program(ir, offset_provider=offset_provider)
-
         sdfg = gtir_sdfg.build_sdfg_from_gtir(ir, offset_provider=offset_provider)
 
         if auto_opt:
-            return gtx_transformations.gt_auto_optimize(sdfg, gpu=on_gpu)
+            gtx_transformations.gt_auto_optimize(sdfg, gpu=on_gpu)
         elif on_gpu:
-            dace_autoopt.apply_gpu_storage(sdfg)
+            gtx_transformations.gt_gpu_transformation(sdfg, try_removing_trivial_maps=False)
 
         return sdfg
 
