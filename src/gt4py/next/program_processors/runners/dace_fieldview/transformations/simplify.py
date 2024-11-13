@@ -61,6 +61,8 @@ def gt_simplify(
     Further, the function will run the following passes in addition to DaCe simplify:
     - `GT4PyRednundantArrayElimination`: Special version of the array removal, see
         documentation of `GT4PyRednundantArrayElimination`.
+    - `GT4PyGlobalSelfCopyElimination`: Special copy pattern that in the context
+        of GT4Py based SDFG behaves as a no op.
 
     Furthermore, by default, or if `None` is passed for `skip` the passes listed in
     `GT_SIMPLIFY_DEFAULT_SKIP_SET` will be skipped.
@@ -75,45 +77,67 @@ def gt_simplify(
     Note:
         Currently DaCe does not provide a way to inject or exchange sub passes in
         simplify. The custom inline pass is run at the beginning and the array
-        elimination at the begin. Thus, `gt_simplify()` might not result in a fix
-        point. This is an implementation detail that will change in the future.
+        elimination at the end. The whole process is run inside a loop that ensures
+        that `gt_simplify()` results in a fix point.
     """
     # Ensure that `skip` is a `set`
     skip = GT_SIMPLIFY_DEFAULT_SKIP_SET if skip is None else set(skip)
 
     result: Optional[dict[str, Any]] = None
 
-    if "InlineSDFGs" not in skip:
-        inline_res = gt_inline_nested_sdfg(
-            sdfg=sdfg,
-            multistate=True,
-            permissive=False,
+    at_least_one_xtrans_run = True
+
+    while at_least_one_xtrans_run:
+        at_least_one_xtrans_run = False
+
+        if "InlineSDFGs" not in skip:
+            inline_res = gt_inline_nested_sdfg(
+                sdfg=sdfg,
+                multistate=True,
+                permissive=False,
+                validate=validate,
+                validate_all=validate_all,
+            )
+            if inline_res is not None:
+                at_least_one_xtrans_run = True
+                result = result or {}
+                result.update(inline_res)
+
+        simplify_res = dace_passes.SimplifyPass(
             validate=validate,
             validate_all=validate_all,
-        )
-        if inline_res is not None:
-            result = inline_res
+            verbose=False,
+            skip=(skip | {"InlineSDFGs"}),
+        ).apply_pass(sdfg, {})
 
-    simplify_res = dace_passes.SimplifyPass(
-        validate=validate,
-        validate_all=validate_all,
-        verbose=False,
-        skip=(skip | {"InlineSDFGs"}),
-    ).apply_pass(sdfg, {})
-
-    if simplify_res is not None:
-        result = result or {}
-        result.update(simplify_res)
-
-    if "GT4PyRednundantArrayElimination" not in skip:
-        array_elimination_result = sdfg.apply_transformations_repeated(
-            GT4PyRednundantArrayElimination(),
-            validate=validate,
-            validate_all=validate_all,
-        )
-        if array_elimination_result is not None:
+        if simplify_res is not None:
+            at_least_one_xtrans_run = True
             result = result or {}
-            result["GT4PyRednundantArrayElimination"] = array_elimination_result
+            result.update(simplify_res)
+
+        if "GT4PyRednundantArrayElimination" not in skip:
+            array_elimination_result = sdfg.apply_transformations_repeated(
+                GT4PyRednundantArrayElimination(),
+                validate=validate,
+                validate_all=validate_all,
+            )
+            if array_elimination_result > 0:
+                at_least_one_xtrans_run = True
+                result = result or {}
+                result.setdefault("GT4PyRednundantArrayElimination", 0)
+                result["GT4PyRednundantArrayElimination"] += array_elimination_result
+
+        if "GT4PyGlobalSelfCopyElimination" not in skip:
+            self_copy_removal_result = sdfg.apply_transformations_repeated(
+                GT4PyGlobalSelfCopyElimination(),
+                validate=validate,
+                validate_all=validate_all,
+            )
+            if self_copy_removal_result > 0:
+                at_least_one_xtrans_run = True
+                result = result or {}
+                result.setdefault("GT4PyGlobalSelfCopyElimination", 0)
+                result["GT4PyGlobalSelfCopyElimination"] += self_copy_removal_result
 
     return result
 
@@ -615,6 +639,147 @@ class GT4PyRednundantArrayElimination(dace_transformation.SingleStateTransformat
             # This might happen if the data is still used somewhere else, but the
             #  transformation has decided that it is safe to remove it.
             pass
+
+
+@dace_properties.make_properties
+class GT4PyGlobalSelfCopyElimination(dace_transformation.SingleStateTransformation):
+    """Remove global self copy.
+
+    This transformation matches the following case `(G) -> (T) -> (G)`, i.e. `G`
+    is read from and written too at the same time, however, in between is `T`
+    used as a buffer. In the example above `G` is a global memory and `T` is a
+    temporary. This situation is generated by the lowering if the data node is
+    not needed (because the computation on it is only conditional).
+
+    In case `G` refers to global memory rule 3 of ADR-18 guarantees that we can
+    only have a point wise dependency of the output on the input.
+    This transformation will remove the write into `G`, i.e. we thus only have
+    `(G) -> (T)`. The read of `G` and the definition of `T`, will only be removed
+    if `T` is not used downstream. If it is used `T` will be maintained.
+    """
+
+    node_read_g = dace_transformation.transformation.PatternNode(dace_nodes.AccessNode)
+    node_tmp = dace_transformation.transformation.PatternNode(dace_nodes.AccessNode)
+    node_write_g = dace_transformation.transformation.PatternNode(dace_nodes.AccessNode)
+
+    def __init__(
+        self,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+
+    @classmethod
+    def expressions(cls) -> Any:
+        return [dace.sdfg.utils.node_path_graph(cls.node_read_g, cls.node_tmp, cls.node_write_g)]
+
+    def can_be_applied(
+        self,
+        graph: dace.SDFGState | dace.SDFG,
+        expr_index: int,
+        sdfg: dace.SDFG,
+        permissive: bool = False,
+    ) -> bool:
+        read_g = self.node_read_g
+        write_g = self.node_write_g
+        tmp_node = self.node_tmp
+        g_desc = read_g.desc(sdfg)
+        tmp_desc = tmp_node.desc(sdfg)
+
+        # NOTE: We do not check if `G` is read downstream.
+        if read_g.data != write_g.data:
+            return False
+        if g_desc.transient:
+            return False
+        if not tmp_desc.transient:
+            return False
+        if graph.in_degree(read_g) != 0:
+            return False
+        if graph.out_degree(read_g) != 1:
+            return False
+        if graph.degree(tmp_node) != 2:
+            return False
+        if graph.in_degree(write_g) != 1:
+            return False
+        if graph.out_degree(write_g) != 0:
+            return False
+        if graph.scope_dict()[read_g] is not None:
+            return False
+
+        return True
+
+    def _is_read_downstream(
+        self,
+        start_state: dace.SDFGState,
+        sdfg: dace.SDFG,
+        data_to_look: str,
+    ) -> bool:
+        """Scans for reads to `data_to_look`.
+
+        The function will go through states that are reachable from `start_state`
+        (including) and test if there is a read to the data container `data_to_look`.
+        It will return `True` the first time it finds such a node.
+        It is important that the matched nodes, i.e. `self.node_{read_g, write_g, tmp}`
+        are ignored.
+
+        Args:
+            start_state: The state where the scanning starts.
+            sdfg: The SDFG on which we operate.
+            data_to_look: The data that we want to look for.
+        """
+        read_g: dace_nodes.AccessNode = self.node_read_g
+        write_g: dace_nodes.AccessNode = self.node_write_g
+        tmp_node: dace_nodes.AccessNode = self.node_tmp
+
+        seen_states: set[dace.SDFGState] = set()
+        to_visit: list[dace.SDFGState] = [start_state]
+        ign_dnodes: set[dace_nodes.AccessNode] = {read_g, write_g, tmp_node}
+
+        while len(to_visit) > 0:
+            state = to_visit.pop()
+            seen_states.add(state)
+            for dnode in state.data_nodes():
+                if dnode.data != data_to_look:
+                    continue
+                if dnode in ign_dnodes:
+                    continue
+                if state.out_degree(dnode) != 0:
+                    return True  # There is a read operation
+
+            # Look for new states, also scan the interstate edges.
+            for out_edge in sdfg.out_edges(state):
+                if data_to_look in out_edge.data.read_symbols():
+                    return True
+                if out_edge.dst in seen_states:
+                    continue
+                to_visit.append(out_edge.dst)
+
+        return False
+
+    def apply(
+        self,
+        graph: dace.SDFGState | dace.SDFG,
+        sdfg: dace.SDFG,
+    ) -> None:
+        read_g: dace_nodes.AccessNode = self.node_read_g
+        write_g: dace_nodes.AccessNode = self.node_write_g
+        tmp_node: dace_nodes.AccessNode = self.node_tmp
+
+        # We first check if `T`, the intermediate is not used downstream. In this
+        #  case we can remove the read to `G` and `T` itself from the SDFG.
+        #  We have to do this check before, because the matching is not fully stable.
+        is_tmp_used_downstream = self._is_read_downstream(
+            start_state=graph, sdfg=sdfg, data_to_look=tmp_node.data
+        )
+
+        # The write to `G` can always be removed.
+        graph.remove_node(write_g)
+
+        # Also remove the read to `G` and `T` from the SDFG if possible.
+        if not is_tmp_used_downstream:
+            graph.remove_node(read_g)
+            graph.remove_node(tmp_node)
+            sdfg.remove_data(tmp_node.data)
 
 
 AccessLocation: TypeAlias = tuple[dace.SDFGState, dace_nodes.AccessNode]
