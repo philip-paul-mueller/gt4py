@@ -22,7 +22,7 @@ from .gpu_utils import (
 from .loop_blocking import LoopBlocking
 from .map_fusion_parallel import MapFusionParallel
 from .map_fusion_serial import MapFusionSerial
-from .map_orderer import MapIterationOrder
+from .map_orderer import MapIterationOrder, gt_set_iteration_order
 from .map_promoter import SerialMapPromoter
 from .simplify import (
     GT_SIMPLIFY_DEFAULT_SKIP_SET,
@@ -30,10 +30,10 @@ from .simplify import (
     GT4PyMoveTaskletIntoMap,
     gt_inline_nested_sdfg,
     gt_reduce_distributed_buffering,
-    gt_set_iteration_order,
     gt_simplify,
     gt_substitute_compiletime_symbols,
 )
+from .strides import gt_change_transient_strides
 from .util import gt_find_constant_arguments, gt_make_transients_persistent
 
 
@@ -49,6 +49,7 @@ __all__ = [
     "SerialMapPromoter",
     "SerialMapPromoterGPU",
     "gt_auto_optimize",
+    "gt_change_transient_strides",
     "gt_gpu_transformation",
     "gt_inline_nested_sdfg",
     "gt_set_iteration_order",
