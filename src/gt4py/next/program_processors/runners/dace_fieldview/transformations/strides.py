@@ -52,8 +52,6 @@ def gt_change_transient_strides(
 
     Todo:
         - Implement the estimation correctly.
-        - Handle the case of nested SDFGs correctly; on the outside a transient,
-            but on the inside a non transient.
     """
     # TODO(phimeull): Implement this function correctly.
 
@@ -63,22 +61,32 @@ def gt_change_transient_strides(
         return sdfg
 
     for nsdfg in sdfg.all_sdfgs_recursive():
-        # TODO(phimuell): Handle the case when transient goes into nested SDFG
-        #   on the inside it is a non transient, so it is ignored.
         _gt_change_transient_strides_non_recursive_impl(nsdfg)
 
 
 def _gt_change_transient_strides_non_recursive_impl(
     sdfg: dace.SDFG,
 ) -> None:
-    """Essentially this function just changes the stride to FORTRAN order.
+    """Set optimal strides of all transients in the SDFG.
+
+    The function will look for all top level transients, see `_gt_find_toplevel_data_accesses()`
+    and set their strides such that the access is optimal, see Note. The function
+    will also run `gt_propagate_strides_of()` to propagate the strides into nested SDFGs.
+
+    This function should never be called directly but always through
+    `gt_change_transient_strides()`!
+
+    Note:
+        Currently the function just reverses the strides of the data descriptor
+        it processes. Since DaCe generates `C` order by default this lead to
+        FORTRAN order, which is (for now) sufficient to optimize the memory
+        layout to GPU.
 
     Todo:
         Make this function more intelligent to analyse the access pattern and then
         figuring out the best order.
     """
-
-    # NOTE: processing the transient here is enough. If we are inside a
+    # NOTE: Processing the transient here is enough. If we are inside a
     #   NestedSDFG then they were handled before on the level above us.
     top_level_transients_and_their_accesses = _gt_find_toplevel_data_accesses(
         sdfg=sdfg,
@@ -120,6 +128,7 @@ def _gt_change_transient_strides_non_recursive_impl(
 def gt_propagate_strides_of(
     sdfg: dace.SDFG,
     data_name: str,
+    ignore_symbol_mapping: bool = False,
 ) -> None:
     """Propagates the strides of `data_name` within the whole SDFG.
 
@@ -130,6 +139,8 @@ def gt_propagate_strides_of(
     Args:
         sdfg: The SDFG on which we operate.
         data_name: Name of the data descriptor that should be handled.
+        ignore_symbol_mapping: If `False`, the default, try to modify the `symbol_mapping`
+            of NestedSDFGs instead of manipulating the data descriptor.
     """
 
     # Defining it here ensures that we will not enter an NestedSDFG multiple times.
@@ -144,6 +155,7 @@ def gt_propagate_strides_of(
                 state=state,
                 outer_node=dnode,
                 processed_nsdfgs=processed_nsdfgs,
+                ignore_symbol_mapping=ignore_symbol_mapping,
             )
 
 
@@ -151,6 +163,7 @@ def gt_propagate_strides_from_access_node(
     sdfg: dace.SDFG,
     state: dace.SDFGState,
     outer_node: dace_nodes.AccessNode,
+    ignore_symbol_mapping: bool = False,
     processed_nsdfgs: Optional[set[PropagatedStrideRecord]] = None,
 ) -> None:
     """Propagates the stride of `outer_node` along all adjacent edges of `outer_node`.
@@ -172,6 +185,8 @@ def gt_propagate_strides_from_access_node(
         outer_node: The data node whose strides should be propagated.
         processed_nsdfgs: Set of NestedSDFG that were already processed and will be ignored.
             Only specify when you know what your are doing.
+        ignore_symbol_mapping: If `False`, the default, try to modify the `symbol_mapping`
+            of NestedSDFGs instead of manipulating the data descriptor.
         propagate_along_dataflow: Determine the direction of propagation. If `True` the
             function follows the dataflow.
     """
@@ -187,6 +202,7 @@ def gt_propagate_strides_from_access_node(
             edge=in_edge,
             outer_node=outer_node,
             processed_nsdfgs=processed_nsdfgs,
+            ignore_symbol_mapping=ignore_symbol_mapping,
         )
     for out_edge in state.out_edges(outer_node):
         gt_map_strides_to_dst_nested_sdfg(
@@ -195,6 +211,7 @@ def gt_propagate_strides_from_access_node(
             edge=out_edge,
             outer_node=outer_node,
             processed_nsdfgs=processed_nsdfgs,
+            ignore_symbol_mapping=ignore_symbol_mapping,
         )
 
 
@@ -203,6 +220,7 @@ def gt_map_strides_to_dst_nested_sdfg(
     state: dace.SDFGState,
     edge: dace.sdfg.graph.Edge,
     outer_node: dace.nodes.AccessNode,
+    ignore_symbol_mapping: bool = False,
     processed_nsdfgs: Optional[set[PropagatedStrideRecord]] = None,
 ) -> None:
     """Propagates the strides of `outer_node` along `edge` along the dataflow.
@@ -215,6 +233,8 @@ def gt_map_strides_to_dst_nested_sdfg(
         state: The state where the data node is used.
         edge: The edge that writes to the data node, the nested SDFG is expected as the source.
         outer_node: The data node whose strides should be propagated.
+        ignore_symbol_mapping: If `False`, the default, try to modify the `symbol_mapping`
+            of NestedSDFGs instead of manipulating the data descriptor.
         processed_nsdfgs: Set of Nested SDFG that were already processed. Only specify when
             you know what your are doing.
     """
@@ -225,6 +245,7 @@ def gt_map_strides_to_dst_nested_sdfg(
         outer_node=outer_node,
         processed_nsdfgs=processed_nsdfgs,
         propagate_along_dataflow=True,
+        ignore_symbol_mapping=ignore_symbol_mapping,
     )
 
 
@@ -233,6 +254,7 @@ def gt_map_strides_to_src_nested_sdfg(
     state: dace.SDFGState,
     edge: dace.sdfg.graph.Edge,
     outer_node: dace.nodes.AccessNode,
+    ignore_symbol_mapping: bool = False,
     processed_nsdfgs: Optional[set[PropagatedStrideRecord]] = None,
 ) -> None:
     """Propagates the strides of `outer_node` along `edge` against the dataflow.
@@ -245,6 +267,8 @@ def gt_map_strides_to_src_nested_sdfg(
         state: The state where the data node is used.
         edge: The edge that writes to the data node, the nested SDFG is expected as the source.
         outer_node: The data node whose strides should be propagated.
+        ignore_symbol_mapping: If `False`, the default, try to modify the `symbol_mapping`
+            of NestedSDFGs instead of manipulating the data descriptor.
         processed_nsdfgs: Set of Nested SDFG that were already processed. Only specify when
             you know what your are doing.
     """
@@ -255,6 +279,7 @@ def gt_map_strides_to_src_nested_sdfg(
         outer_node=outer_node,
         processed_nsdfgs=processed_nsdfgs,
         propagate_along_dataflow=False,
+        ignore_symbol_mapping=ignore_symbol_mapping,
     )
 
 
@@ -265,6 +290,7 @@ def _gt_map_strides_to_nested_sdfg_src_dst(
     outer_node: dace.nodes.AccessNode,
     processed_nsdfgs: Optional[set[PropagatedStrideRecord]],
     propagate_along_dataflow: bool,
+    ignore_symbol_mapping: bool = False,
 ) -> None:
     """Propagates the stride of `outer_node` along `edge`.
 
@@ -292,6 +318,8 @@ def _gt_map_strides_to_nested_sdfg_src_dst(
             Only specify when you know what your are doing.
         propagate_along_dataflow: Determine the direction of propagation. If `True` the
             function follows the dataflow.
+        ignore_symbol_mapping: If `False`, the default, try to modify the `symbol_mapping`
+            of NestedSDFGs instead of manipulating the data descriptor.
 
     Note:
         A user should not use this function directly, instead `gt_propagate_strides_of()`,
@@ -349,6 +377,7 @@ def _gt_map_strides_to_nested_sdfg_src_dst(
                 outer_node=outer_node,
                 processed_nsdfgs=processed_nsdfgs,
                 propagate_along_dataflow=propagate_along_dataflow,
+                ignore_symbol_mapping=ignore_symbol_mapping,
             )
 
     elif isinstance(get_node(edge), dace.nodes.NestedSDFG):
@@ -370,6 +399,7 @@ def _gt_map_strides_to_nested_sdfg_src_dst(
             inner_data=inner_data,
             edge_data=edge.data,
             outer_strides=outer_node.desc(sdfg).strides,
+            ignore_symbol_mapping=ignore_symbol_mapping,
         )
 
         # Because the function call above if not recursive we have now to scan the
@@ -392,6 +422,7 @@ def _gt_map_strides_to_nested_sdfg_src_dst(
                 state=nested_state,
                 outer_node=nested_access,
                 processed_nsdfgs=processed_nsdfgs,
+                ignore_symbol_mapping=ignore_symbol_mapping,
             )
 
 
@@ -400,8 +431,14 @@ def _gt_map_strides_to_nested_sdfg(
     inner_data: str,
     edge_data: dace.Memlet,
     outer_strides: Iterable[int | dace.symbolic.SymExpr],
+    ignore_symbol_mapping: bool = False,
 ) -> None:
-    # TODO(phimuell/edopao): Refactor this function.
+    """
+    Todo:
+        - Refactor this function.
+        - Handle the case the stride is used somewhere else.
+        - Handle the case where we have an explicit size 1 dimension in slicing.
+    """
     # We need to propagate the strides inside the nested SDFG on the global arrays
     new_strides = tuple(
         stride
@@ -420,7 +457,9 @@ def _gt_map_strides_to_nested_sdfg(
         return
 
     assert isinstance(inner_desc, dace.data.Array)
-    if all(isinstance(inner_stride, dace.symbol) for inner_stride in inner_desc.strides):
+    if (not ignore_symbol_mapping) and all(
+        isinstance(inner_stride, dace.symbol) for inner_stride in inner_desc.strides
+    ):
         for inner_stride, outer_stride in zip(inner_desc.strides, new_strides, strict=True):
             nsdfg_node.symbol_mapping[inner_stride.name] = outer_stride
     else:
