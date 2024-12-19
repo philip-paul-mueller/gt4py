@@ -41,6 +41,11 @@ def gt_change_transient_strides(
     transients in the optimal way.
     The function should run after all maps have been created.
 
+    After the strides have been adjusted the function will also propagate
+    the strides into nested SDFG. This propagation will happen with
+    `ignore_symbol_mapping` set to `True`, see `gt_propagate_strides_of()`
+    for more.
+
     Args:
         sdfg: The SDFG to process.
         gpu: If the SDFG is supposed to run on the GPU.
@@ -123,13 +128,14 @@ def _gt_change_transient_strides_non_recursive_impl(
                 state=state,
                 outer_node=access_node,
                 processed_nsdfgs=processed_nsdfgs,
+                ignore_symbol_mapping=True,
             )
 
 
 def gt_propagate_strides_of(
     sdfg: dace.SDFG,
     data_name: str,
-    ignore_symbol_mapping: bool = False,
+    ignore_symbol_mapping: bool = True,
 ) -> None:
     """Propagates the strides of `data_name` within the whole SDFG.
 
@@ -140,7 +146,7 @@ def gt_propagate_strides_of(
     Args:
         sdfg: The SDFG on which we operate.
         data_name: Name of the data descriptor that should be handled.
-        ignore_symbol_mapping: If `False`, the default, try to modify the `symbol_mapping`
+        ignore_symbol_mapping: If `False` (default is `True`) try to modify the `symbol_mapping`
             of NestedSDFGs instead of manipulating the data descriptor.
     """
 
@@ -164,7 +170,7 @@ def gt_propagate_strides_from_access_node(
     sdfg: dace.SDFG,
     state: dace.SDFGState,
     outer_node: dace_nodes.AccessNode,
-    ignore_symbol_mapping: bool = False,
+    ignore_symbol_mapping: bool = True,
     processed_nsdfgs: Optional[set[PropagatedStrideRecord]] = None,
 ) -> None:
     """Propagates the stride of `outer_node` to any adjacent reachable through its edges.
@@ -184,7 +190,7 @@ def gt_propagate_strides_from_access_node(
         state: The state where the data node is used.
         edge: The edge that reads from the data node, the nested SDFG is expected as the destination.
         outer_node: The data node whose strides should be propagated.
-        ignore_symbol_mapping: If `False`, the default, try to modify the `symbol_mapping`
+        ignore_symbol_mapping: If `False` (default is `True`), try to modify the `symbol_mapping`
             of NestedSDFGs instead of manipulating the data descriptor.
         processed_nsdfgs: Set of NestedSDFG that were already processed and will be ignored.
             Only specify when you know what your are doing.
@@ -574,9 +580,7 @@ def _gt_map_strides_into_nested_sdfg(
 
         # Now propagate the symbols from the parent SDFG to the NestedSDFG.
         for sym in missing_symbol_mappings:
-            if sym in sdfg.symbols:
-                # TODO(phimuell): Handle the case the symbol is already defined in
-                #   the nested SDFG.
+            if str(sym) in sdfg.symbols:
                 nsdfg_node.sdfg.add_symbol(sym.name, sdfg.symbols[sym.name])
             else:
                 # The symbol is not known in the parent SDFG, so we add it
@@ -585,11 +589,11 @@ def _gt_map_strides_into_nested_sdfg(
                     f"Could not find the symbol '{sym}' in the parent SDFG while modifying the strides, use '{nsdfg_node.sdfg.symbols[sym.name]}' as dtype.",
                     stacklevel=1,
                 )
-                nsdfg_node.symbol_mapping[sym.name] = sym
+            nsdfg_node.symbol_mapping[sym.name] = sym
 
         # Now create aliases for the old symbols that were used as strides.
         for old_sym, new_sym in zip(inner_strides_init, new_strides):
-            if dace.symbolic.issymbolic(old_sym):
+            if dace.symbolic.issymbolic(old_sym) and old_sym.is_symbol:
                 nsdfg_node.symbol_mapping[str(old_sym)] = dace.symbolic.pystr_to_symbolic(new_sym)
 
 
