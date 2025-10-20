@@ -154,7 +154,7 @@ def gt_simplify(
                     result["GT4PyDeadDataflowElimination"] = 0
                 result["GT4PyDeadDataflowElimination"] += eliminate_dead_dataflow_res
 
-        if False and "TrivialTaskletElimination" not in skip:
+        if "TrivialTaskletElimination" not in skip:
             eliminated_trivial_tasklets = sdfg.apply_transformations_once_everywhere(
                 dace.transformation.dataflow.TrivialTaskletElimination(),
                 validate=False,
