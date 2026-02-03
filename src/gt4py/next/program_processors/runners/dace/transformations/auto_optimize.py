@@ -707,13 +707,13 @@ def _gt_auto_process_dataflow_inside_maps(
     #   before or after `LoopBlocking`. In cases where the condition is `False`
     #   most of the times calling it before is better, but if the condition is
     #   `True` then this order is better. Solve that issue.
-    # sdfg.apply_transformations_repeated(
-    #     gtx_transformations.MoveDataflowIntoIfBody(
-    #         ignore_upstream_blocks=False,
-    #     ),
-    #     validate=False,
-    #     validate_all=validate_all,
-    # )
+    sdfg.apply_transformations_repeated(
+        gtx_transformations.MoveDataflowIntoIfBody(
+            ignore_upstream_blocks=False,
+        ),
+        validate=False,
+        validate_all=validate_all,
+    )
     gtx_transformations.gt_simplify(
         sdfg,
         skip=gtx_transformations.constants._GT_AUTO_OPT_INNER_DATAFLOW_STAGE_SIMPLIFY_SKIP_LIST,
