@@ -77,13 +77,16 @@ def copy_map_graph(
             new_data_descriptors[data_name] = new_data_desc
         elif isinstance(node, dace_nodes.NestedSDFG):
             node_ = graph.add_nested_sdfg(
+                # Does this copy here also copy the parent sdfg because of `nsdfg_node.parent_sdfg`
+                #  Maybe blocking the copy operation.
                 sdfg=copy.deepcopy(node.sdfg),
-                inputs=set(node.in_connectors.keys()),
-                outputs=set(node.out_connectors.keys()),
+                inputs=node.in_connectors.copy(),
+                outputs=node.out_connectors.copy(),
                 symbol_mapping=node.symbol_mapping.copy(),
                 debuginfo=copy.copy(node.debuginfo),
             )
             # ensure the correct reference to parent
+            # I think this is not needed and done by the `add_nested_sdfg()` call.
             node_.sdfg.parent_nsdfg_node = node_
             node_.sdfg.parent = graph
         else:
