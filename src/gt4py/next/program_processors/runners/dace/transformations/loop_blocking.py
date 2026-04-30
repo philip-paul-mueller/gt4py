@@ -16,6 +16,7 @@ from dace import (
     data as dace_data,
     properties as dace_properties,
     subsets as dace_subsets,
+    symbolic as dace_symb,
     transformation as dace_transformation,
 )
 from dace.sdfg import (
@@ -136,7 +137,7 @@ class LoopBlocking(dace_transformation.SingleStateTransformation):
         self._memlet_to_promote = []
         for out_edge_outer_entry in graph.out_edges(outer_entry):
             if self._check_if_edge_can_be_promoted(
-                matched_blocking_var, out_edge_outer_entry, outer_entry
+                graph, matched_blocking_var, out_edge_outer_entry, outer_entry
             ):
                 self._memlet_to_promote.append(out_edge_outer_entry)
 
@@ -689,6 +690,7 @@ class LoopBlocking(dace_transformation.SingleStateTransformation):
 
     def _check_if_edge_can_be_promoted(
         self,
+        state: dace.SDFGState,
         matched_blocking_var: str,
         edge: dace_graph.MultiConnectorEdge[dace.Memlet],
         outer_entry: dace_nodes.MapEntry,
@@ -728,40 +730,45 @@ class LoopBlocking(dace_transformation.SingleStateTransformation):
         if any(matched_blocking_var in subset.free_symbols for subset in subsets_to_inspect):
             return False
 
-        # If the memlet is connected to a MapEntry and the MapEnty parameters contain the blocking parameter,
-        # we could promote the memlet to the outer map but at the time there's no case where this can happen
-        # so we leave it as future work.
-        # TODO(iomaganaris): Implement this case if it turns out to be relevant.
         if isinstance(edge.dst, dace_nodes.MapEntry):
-            if matched_blocking_var in edge.dst.params:
+            nested_map: dace_nodes.MapEntry = edge.dst
+            if matched_blocking_var in nested_map.free_symbols:
                 return False
 
-        if isinstance(edge.dst, dace_nodes.Tasklet) and not edge.data.data.startswith("gt_conn_"):
-            # TODO(iomaganaris): This check is done for tesklets that have as input a field
-            # (connection name: `__tlet_field`) and one or two offsets
-            # (connection name: `__tlet_index_Cell` and `__tlet_index_K`).
-            # If there is no `K` dependent offset if we have blocking on `K`, we can promote the memlet.
-            # If there is no `Cell` dependent offset if we have blocking on `Cell`, we can promote the memlet.
-            # However above require checking the tasklet internals without being sure of these conventions.
-            # For that purpose we choose to promote only memlets that are passed to tasklets only
-            # if they are connectivities.
-            return False
+        # We have to inspect the final consumers.
+        for consumer_edge_to_check in state.memlet_tree(edge).leaves():
+            if isinstance(
+                consumer_edge_to_check.dst, dace_nodes.Tasklet
+            ) and not consumer_edge_to_check.data.data.startswith("gt_conn_"):
+                # TODO(iomaganaris): This check is done for tesklets that have as input a field
+                # (connection name: `__tlet_field`) and one or two offsets
+                # (connection name: `__tlet_index_Cell` and `__tlet_index_K`).
+                # If there is no `K` dependent offset if we have blocking on `K`, we can promote the memlet.
+                # If there is no `Cell` dependent offset if we have blocking on `Cell`, we can promote the memlet.
+                # However above require checking the tasklet internals without being sure of these conventions.
+                # For that purpose we choose to promote only memlets that are passed to tasklets only
+                # if they are connectivities.
+                return False
 
-        if isinstance(edge.dst, dace_nodes.LibraryNode):
-            # We currently do not handle promotion of memlets to library nodes, since it is not clear if this can actually happen in the cases we care about and it would require some work to handle the different cases.
-            warnings.warn(
-                "LoopBlocking: Memlet promotion to LibraryNode is not supported and will be skipped.",
-                stacklevel=2,
-            )
-            return False
+            if isinstance(consumer_edge_to_check.dst, dace_nodes.LibraryNode):
+                # We currently do not handle promotion of memlets to library nodes, since it is not clear if this can actually happen in the cases we care about and it would require some work to handle the different cases.
+                warnings.warn(
+                    "LoopBlocking: Memlet promotion to LibraryNode is not supported and will be skipped.",
+                    stacklevel=2,
+                )
+                return False
 
-        if isinstance(edge.dst, dace_nodes.NestedSDFG):
-            # We currently do not handle promotion of memlets to nested SDFGs, since it is not clear if this can actually happen in the cases we care about and it would require some work to handle the different cases.
-            warnings.warn(
-                "LoopBlocking: Memlet promotion to NestedSDFG is not supported and will be skipped.",
-                stacklevel=2,
-            )
-            return False
+            if isinstance(consumer_edge_to_check.dst, dace_nodes.NestedSDFG):
+                # We currently do not handle promotion of memlets to nested SDFGs, since it is not clear if this can actually happen in the cases we care about and it would require some work to handle the different cases.
+                warnings.warn(
+                    "LoopBlocking: Memlet promotion to NestedSDFG is not supported and will be skipped.",
+                    stacklevel=2,
+                )
+                return False
+
+            if isinstance(consumer_edge_to_check.dst, dace_nodes.AccessNode):
+                # It does not make sense to promote such a Memlet as it is cached anyway.
+                return False
 
         return True
 
@@ -775,136 +782,83 @@ class LoopBlocking(dace_transformation.SingleStateTransformation):
         assert self._independent_nodes is not None  # silence MyPy
         assert self._memlet_to_promote is None  # silence MyPy
 
+        # NOTE: We canonicalize the Memlet trees to simplify the implementation of
+        #   this function.
         _ = sdfg.reset_cfg_list()
         dace_sdutils.canonicalize_memlet_trees_for_map(state=state, map_node=outer_map_entry)
         dace_propagation.propagate_memlets_map_scope(sdfg, state, outer_map_entry)
 
         self._populate_memlet_to_promote(matched_blocking_var, state, outer_map_entry)
+
         # Below checks are necessary for MyPy
-        if self._memlet_to_promote and len(self._memlet_to_promote) == 0:
+        if not self._memlet_to_promote:
             return
         assert self._memlet_to_promote is not None
 
-        for in_edge in self._memlet_to_promote:
-            if isinstance(in_edge.dst, dace_nodes.AccessNode):
-                raise NotImplementedError(
-                    "Promotion of memlets to AccessNodes is not implemented because "
-                    "this case should already be handled since the destination AccesesNode "
-                    "should already be in the set of independent nodes."
-                )
-            # Create a temporary AccessNode that will be used to promote the memlet
-            promoted_accessnode_shape = []
-            # We have to adjust the subsets of the inner map out edges that are connected to the memlet we want to promote in case the destination of the in_edge is a MapEntry.
-            corresponding_inner_map_out_edges = list(
-                state.out_edges_by_connector(in_edge.dst, "OUT_" + in_edge.dst_conn[3:])
-            )
-            assert (
-                len(corresponding_inner_map_out_edges) > 0
-                if isinstance(in_edge.dst, dace_nodes.MapEntry)
-                else True
-            ), (
-                "If the destination of the memlet we want to promote is a MapEntry, there should be at least one corresponding inner map out edge."
-            )
-            # Store old subsets of the inner map out edges to be able to adjust them later.
-            inner_map_out_edges_and_old_subsets = dict()
-            for inner_map_out_edge in corresponding_inner_map_out_edges:
-                inner_map_out_edges_and_old_subsets[inner_map_out_edge] = (
-                    inner_map_out_edge.data.subset
-                )
-            # Dict of new subsets for the inner map out edges after removing the independent dimensions.
-            inner_map_out_edges_and_new_subsets = dict()
-            for inner_map_out_edge in corresponding_inner_map_out_edges:
-                inner_map_out_edges_and_new_subsets[inner_map_out_edge] = []
-            # Make sure that the subsets of the inner map out edges have the same number of dimensions as the memlet we want to promote.
-            assert all(
-                len(corresponding_inner_map_out_edge.data.subset) == len(in_edge.data.subset)
-                for corresponding_inner_map_out_edge in corresponding_inner_map_out_edges
-            )
-            # Go through the subsets of the independent memlet to find out what should be the size of the temporary access node.
-            # If the in_edge.dst is a MapEntry, we have to adjust the subsets of the inner map out edges that are connected to the memlet we want to promote by removing the independent dimensions.
-            for i, subset_range in enumerate(in_edge.data.subset.ranges):
-                start, end, step = subset_range
-                subset_free_symbols = start.free_symbols.union(end.free_symbols).union(
-                    step.free_symbols
-                )
-                subset_free_symbols = set(str(s) for s in subset_free_symbols)
-                if not subset_free_symbols.intersection(set(outer_map_entry.map.params)):
-                    for inner_map_out_edge in corresponding_inner_map_out_edges:
-                        inner_map_out_edges_and_new_subsets[inner_map_out_edge].append(
-                            inner_map_out_edges_and_old_subsets[inner_map_out_edge][i]
-                        )
-                    promoted_accessnode_shape.append(dace_subsets.Range([subset_range]).size()[0])
-            # The subsets of the inner map out edges should have at least one dimension left after removing the independent dimensions.
-            assert all(
-                len(inner_map_out_edges_and_new_subset) > 0
-                for inner_map_out_edges_and_new_subset in inner_map_out_edges_and_new_subsets.values()
-            ), (
-                "After removing the independent dimensions there should be at least one dimension left to promote."
-            )
-            # The subset of the memlet from inner MapEntry.
-            assert all(
-                len(inner_map_out_edges_and_new_subset) <= len(in_edge.data.subset.ranges) - 1
-                for inner_map_out_edges_and_new_subset in inner_map_out_edges_and_new_subsets.values()
-            ), (
-                "After removing the independent dimensions there should be at least one dimension smaller than the outer map."
-            )
-            promoted_name, promoted_desc = sdfg.add_temp_transient(
-                shape=promoted_accessnode_shape,
-                dtype=sdfg.arrays[in_edge.data.data].dtype,
-            )
-            promoted_anode = state.add_access(promoted_name)
-            original_dst_of_in_edge = in_edge.dst
-            original_dst_conn_of_in_edge = in_edge.dst_conn
-            original_dst_other_subset_of_in_edge = in_edge.data.other_subset
-            # Redirect the memlet to the temporary AccessNode
-            dace_helpers.redirect_edge(
-                state=state,
-                edge=in_edge,
-                new_dst=promoted_anode,
-                new_dst_conn=None,
-                new_memlet=dace.Memlet(
-                    data=in_edge.data.data,
-                    subset=in_edge.data.subset,
-                    other_subset=dace_subsets.Range.from_array(sdfg.arrays[promoted_name]),
-                ),
-            )
+        for edge_to_promote in self._memlet_to_promote:
+            assert edge_to_promote.src is outer_map_entry
+            assert not isinstance(edge_to_promote.dst, dace_nodes.AccessNode)
 
-            # Create a new memlet from the temporary AccessNode to the original destination
+            original_data = edge_to_promote.data.data
+            original_data_desc = sdfg.arrays[original_data]
+
+            promote_subset: dace_subsets.Subset = (
+                edge_to_promote.data.subset
+            )  # Works because of canonicalization.
+            # TODO(phimuell): Handle the removal of pseudo dimensions.
+            buffer_shape = tuple(dace_symb.overapproximate(promote_subset.size()))
+            assert all(str(x).isdigit() for x in buffer_shape)
+
+            buffer_data, buffer_desc = sdfg.add_array(
+                f"__loopblocking_promoted_data_{original_data}",
+                shape=buffer_shape,
+                dtype=original_data_desc.dtype,
+                transient=True,
+                find_new_name=True,
+            )
+            buffer_node = state.add_access(buffer_data)
+
+            buffer_offset_list = []
+            for range_triple in promote_subset.min_element():
+                dim_range = dace_subsets.Range([range_triple])
+                if dim_range.free_symbols.intersection(outer_map_entry.map.params):
+                    # Was accessed by a Map parameter.
+                    buffer_offset_list.append(dim_range[0])
+                else:
+                    # Was not accessed by a Map parameter.
+                    buffer_offset_list.append((range_triple[0], range_triple[0], 1))
+            buffer_offset = dace_subsets.Range(buffer_offset_list)
+
+            # Now populate the buffer.
             state.add_edge(
-                promoted_anode,
+                edge_to_promote.src,
+                edge_to_promote.src_conn,
+                buffer_node,
                 None,
-                original_dst_of_in_edge,
-                original_dst_conn_of_in_edge,
-                memlet=dace.Memlet(
-                    data=promoted_name,
-                    subset=dace_subsets.Range.from_array(promoted_desc),
-                    other_subset=original_dst_other_subset_of_in_edge,
+                dace.Memlet(
+                    data=original_data,
+                    subset=copy.deepcopy(promote_subset),
+                    other_subset=dace_subsets.Range.from_array(buffer_desc),
                 ),
             )
 
-            if isinstance(original_dst_of_in_edge, dace_nodes.MapEntry):
-                # The following logic works only if the level of Map nesting is up to 2.
-                # This should the usual case in our applications but it is not guaranteed in general.
-                # In case we have more than 2 levels of Maps we have to apply the same logic recursively
-                # for each memlet with the `in_edge.data.data` that is connecting MapEntry to MapEntry
-                # and creates the nesting.
-                for inner_map_out_edge in state.out_edges(original_dst_of_in_edge):
-                    if inner_map_out_edge.data.data == in_edge.data.data:
-                        for memlet_tree in state.memlet_tree(inner_map_out_edge).traverse_children(
-                            include_self=True
-                        ):
-                            edge_to_adjust = memlet_tree.edge
-                            assert edge_to_adjust.data.data == in_edge.data.data
-                            edge_to_adjust.data.data = promoted_name
-                            assert len(original_dst_of_in_edge.params) == 1, (
-                                "Independent memlets should only be inputs to maps that have a single parameter. "
-                                "Those should always be neighbor reductions."
-                            )
-                            edge_to_adjust.data.subset = dace_subsets.Range(
-                                inner_map_out_edges_and_new_subsets[inner_map_out_edge]
-                            )
+            # Create the old (uncorrected) consumer.
+            new_consumer_edge = state.add_edge(
+                buffer_node,
+                None,
+                edge_to_promote.dst,
+                edge_to_promote.dst_conn,
+                edge_to_promote.data,
+            )
+            state.remove_edge(edge_to_promote)
 
-            self._independent_nodes.add(promoted_anode)
+            # Now perform correction.
+            for mtree in state.memlet_tree(new_consumer_edge).traverse_children(True):
+                edge_to_correct = mtree.edge
+                assert edge_to_correct.data.data == original_data  # Because of canonicalize.
+                edge_to_correct.data.subset.offset(buffer_offset, negative=True)
+
+            self._independent_nodes.add(buffer_node)
 
     def _rewire_map_scope(
         self,
