@@ -730,10 +730,12 @@ class LoopBlocking(dace_transformation.SingleStateTransformation):
         if any(matched_blocking_var in subset.free_symbols for subset in subsets_to_inspect):
             return False
 
+        inside_map = False
         if isinstance(edge.dst, dace_nodes.MapEntry):
             nested_map: dace_nodes.MapEntry = edge.dst
             if matched_blocking_var in nested_map.free_symbols:
                 return False
+            inside_map = True
 
         # We have to inspect the final consumers.
         for consumer_edge_to_check in state.memlet_tree(edge).leaves():
@@ -767,8 +769,11 @@ class LoopBlocking(dace_transformation.SingleStateTransformation):
                 return False
 
             if isinstance(consumer_edge_to_check.dst, dace_nodes.AccessNode):
-                # It does not make sense to promote such a Memlet as it is cached anyway.
-                return False
+                # It does not make sense to promote a Memlet to an AccessNode, except
+                #  it is inside a nested Map itself. In that case changes are good
+                #  that it is needed as a temporary.
+                if not inside_map:
+                    return False
 
         return True
 
@@ -819,14 +824,14 @@ class LoopBlocking(dace_transformation.SingleStateTransformation):
             buffer_node = state.add_access(buffer_data)
 
             buffer_offset_list = []
-            for range_triple in promote_subset.min_element():
-                dim_range = dace_subsets.Range([range_triple])
+            for dim, lower_bound in enumerate(promote_subset.min_element()):
+                dim_range = dace_subsets.Range([promote_subset[dim]])
                 if dim_range.free_symbols.intersection(outer_map_entry.map.params):
                     # Was accessed by a Map parameter.
                     buffer_offset_list.append(dim_range[0])
                 else:
                     # Was not accessed by a Map parameter.
-                    buffer_offset_list.append((range_triple[0], range_triple[0], 1))
+                    buffer_offset_list.append((lower_bound, lower_bound, 1))
             buffer_offset = dace_subsets.Range(buffer_offset_list)
 
             # Now populate the buffer.
@@ -856,6 +861,7 @@ class LoopBlocking(dace_transformation.SingleStateTransformation):
             for mtree in state.memlet_tree(new_consumer_edge).traverse_children(True):
                 edge_to_correct = mtree.edge
                 assert edge_to_correct.data.data == original_data  # Because of canonicalize.
+                edge_to_correct.data.data = buffer_data
                 edge_to_correct.data.subset.offset(buffer_offset, negative=True)
 
             self._independent_nodes.add(buffer_node)
